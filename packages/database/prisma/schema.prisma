@@ -518,7 +518,6 @@ model Lead {
   sourceLeadDate    DateTime?    @map("source_lead_date")
   legacyAgentLabel  String?      @map("legacy_agent_label")
   sourceStatusRaw   String?      @map("source_status_raw")
-  activeOwnerMarker Boolean?     @default(true) @map("active_owner_marker") // null once a lead has never been claimed is not used; see LeadAssignment for lock
   batchPriority     Int          @default(100) @map("batch_priority")
   sourceOrder       Int          @default(0) @map("source_order")
   createdAt         DateTime     @default(now()) @map("created_at")

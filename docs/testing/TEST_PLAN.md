@@ -94,14 +94,27 @@ Not yet built (see `docs/implementation/IMPLEMENTATION_STATUS.md`):
 - Cross-midnight session splitting / day-boundary sweep. 🚧
 - `PARTIAL_SESSION`/`VACATION`/`DAY_OFF`/`ABSENT` classification. 🚧
 
-## Lead distribution (Phase 6) — not yet built
+## Lead distribution (Phase 6)
 
-- Generate Lead: ≥50 concurrent requests, no duplicate lead, one active lead per Agent. 🚧
-- Take Lead: two Agents simultaneously, exactly one succeeds, correct history. 🚧
+These are the highest-risk paths in the whole system and were run against a
+real Postgres instance with genuinely concurrent (`Promise.all`) HTTP
+requests, not mocks - a mocked Prisma client cannot prove atomicity, and in
+fact this live testing caught two bugs (a raw-SQL enum comparison, and a
+too-short transaction timeout under real contention) that every mocked unit
+test passed right through. See `docs/implementation/IMPLEMENTATION_STATUS.md`
+for full detail.
 
-These are the highest-risk untested paths in the whole system and must be
-run against a real Postgres instance (not mocks) given they depend on actual
-row-locking behavior — a mocked Prisma client cannot prove atomicity.
+| Test | Status |
+|---|---|
+| Generate Lead: ≥50 concurrent requests, no duplicate lead, one active lead per Agent | ✅ verified live: 55 real Agents, 70 available leads, 55 concurrent requests → 55/55 succeeded, 55 distinct leads, 0 duplicates, exactly 55 active `LeadAssignment` rows |
+| Take Lead: two (or more) Agents simultaneously, exactly one succeeds, correct history | ✅ verified live: 10 real Agents racing for one lead → exactly 1 success, 9 conflicts with the exact spec-mandated message, exactly 1 `LeadAssignment` row total (losers wrote nothing) |
+| Session/permission/no-existing-active-lead preconditions | `apps/api/src/leads/leads.service.spec.ts` | ✅ 9 unit tests |
+| Unique-constraint race (same Agent, two near-simultaneous claims) converted to a clean 409 | same + live-tested indirectly via the 55-agent run | ✅ |
+
+Not yet built (Phase 7/8):
+
+- Releasing an active lead (no disposition flow exists yet to close an assignment). 🚧
+- Leads Search (Take Lead currently requires a known lead id). 🚧
 
 ## Dispositions (Phase 7) — not yet built
 

@@ -1,6 +1,6 @@
 # Implementation Status
 
-Last updated: 2026-07-23, end of Phase 5 (Phases 0-4 done in earlier passes
+Last updated: 2026-07-23, end of Phase 6 (Phases 0-5 done in earlier passes
 this same session).
 
 This file exists so nobody has to guess what's real. If something isn't
@@ -302,17 +302,92 @@ Not done (tracked honestly, not silently assumed):
   `DeviceRegistration.isActive`/`revokedAt` fields exist in the schema and
   are honored by the auth guard, but nothing sets `revokedAt` yet).
 
-## Phases 6–12
+## Phase 6 — Atomic lead distribution
 
-**Not started.** Lead distribution, dispositions, search/Take Lead, CDR
-matching, dashboards, branding polish, and the release checklist are all
-outstanding.
+**Status: Done and proven live under real concurrency, including the two
+required scale tests from the spec (≥50 concurrent Generate Lead, Take Lead
+race). This is the highest-risk correctness requirement in the whole
+project, so it got the most aggressive live testing of any phase so far.**
+
+- `apps/api/src/leads/leads.service.ts`:
+  - `generateLead`: verifies active/non-break session, verifies the Agent
+    holds no other active lead, verifies `UserLeadPermission` for the
+    requested `leadType`/partner, then atomically claims the next eligible
+    lead via `SELECT ... FOR UPDATE SKIP LOCKED` ordered by
+    `batch_priority, source_order, batch.created_at, lead.id` (spec §11.1
+    ordering, exactly). Concurrent callers each lock a *different* row
+    instead of blocking or double-claiming one.
+  - `takeLead`: same session/permission checks, but locks one specific
+    requested lead; if another transaction already holds its row lock,
+    `SKIP LOCKED` returns zero rows immediately, which is treated as the
+    same "already assigned to another agent" conflict as a stale status -
+    no blocking, no ambiguity.
+  - Both write the claim (status → `PENDING_CALL`, `LeadAssignment` with
+    `activeLeadMarker`/`activeAgentMarker` set, `LeadStatusHistory`, audit
+    log) inside the same transaction as the row lock, so the lock and the
+    claim can never observably disagree.
+  - "One active lead per Agent" has two independent layers: a friendly
+    pre-check (fast, clear error) and the real guarantee - the
+    `activeAgentMarker` unique constraint - which is caught (Postgres error
+    `P2002`) and converted to the same friendly `409` if two calls from the
+    same Agent ever race past the pre-check.
+- **Two real bugs caught and fixed via live testing, not just unit tests
+  (mocked Prisma cannot catch either of these - they only show up against a
+  real Postgres instance)**:
+  1. The candidate-selection raw SQL compared a native Postgres enum
+     column (`leads.status`) against plain-text bound parameters
+     (`operator does not exist: "LeadStatus" = text`) - every single
+     `Generate Lead` call failed with a 500 until this was found and fixed
+     by casting the column (`l.status::text IN (...)`).
+  2. Prisma's default interactive-transaction timeout (5s) was too short
+     under real contention from 55 simultaneous callers sharing Prisma's
+     default (small) connection pool - transactions were being aborted
+     client-side while still queued for a free connection. Fixed two ways:
+     raised the transaction's `maxWait`/`timeout` to 15s in code (permanent
+     fix), and documented sizing `DATABASE_URL`'s `connection_limit` for
+     real concurrent load in `.env.example` and
+     `docs/deployment/PRODUCTION.md` (an infra/config concern, not just
+     code).
+- **Live verification, this session, against a real Postgres instance**:
+  - Seeded 55 real Agent accounts (real login, real session start) and 70
+    available Cash leads, then fired 55 **genuinely concurrent**
+    (`Promise.all`) `POST /leads/generate` requests. Result: **55/55
+    succeeded, 55 distinct leads, zero duplicates, exactly 55 active
+    `LeadAssignment` rows** (verified in the DB directly, not just from API
+    responses) - satisfies the spec's "≥50 concurrent requests, every
+    successful Agent receives a distinct lead, no duplicate active
+    ownership, one active lead per Agent" test exactly.
+  - Seeded one single lead and 10 real Agent accounts, then fired 10
+    concurrent `POST /leads/:id/take` requests for that *same* lead. Result:
+    **exactly 1 success, 9 conflicts** with the spec's literal message
+    ("This lead is currently assigned to another agent."), and the DB shows
+    exactly one `LeadAssignment` row total for that lead - the 9 losers
+    never got far enough to write anything, they were excluded by the row
+    lock before any insert was attempted.
+- 9 new unit tests (`leads.service.spec.ts`) covering the permission/
+  precondition logic (mocked Prisma - these could not have caught either
+  bug above, which is exactly why the live tests were run).
+
+Not built yet (Phase 7/8, as planned):
+
+- Releasing an active lead (No Answer/Busy → `CALLBACK_ELIGIBLE`, Order
+  Created, other dispositions) - `generateLead`/`takeLead` claim leads but
+  nothing yet closes an assignment. Until Phase 7 exists, an Agent who
+  claims a lead in this environment has no API path to release it other
+  than direct DB access.
+- Leads Search (Phase 8) - `takeLead` requires a `leadId` the caller already
+  knows; there's no search endpoint yet to find one.
+
+## Phases 7–12
+
+**Not started.** Dispositions, search, CDR matching, dashboards, branding
+polish, and the release checklist are all outstanding.
 
 ## Quality gates, as of this update
 
 ```
 pnpm --filter @milaserv/validation test    # 43/43 passing
-pnpm --filter @milaserv/api test           # 30/30 passing (auth + imports + sessions + devices)
+pnpm --filter @milaserv/api test           # 39/39 passing (auth + imports + sessions + devices + leads)
 pnpm --filter @milaserv/worker test        # 0 tests (processors verified via live integration testing instead - see above)
 cd packages/database && prisma validate    # valid
 cd apps/api && tsc --noEmit                # clean

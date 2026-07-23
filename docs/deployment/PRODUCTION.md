@@ -63,3 +63,13 @@ for low-traffic windows.
 - Postgres is the actual concurrency-control point for lead distribution
   (row locking / `SKIP LOCKED`) — scaling `api` replicas does not weaken the
   atomicity guarantees described in `docs/architecture/DATA_MODEL.md`.
+- **Size `DATABASE_URL`'s `connection_limit`/`pool_timeout` for real
+  concurrent load, not Prisma's default.** A live test in this repo's
+  history (55 simultaneous `Generate Lead` calls) failed with "Transaction
+  already closed" under Prisma's default connection pool
+  (`num_cpus*2+1`) — the app-level fix (raising the Generate/Take Lead
+  transaction's `maxWait`/`timeout`) only helps if there's also a large
+  enough pool for those transactions to actually get a connection. At the
+  200-concurrent-Agent target, size the pool per `api` replica accordingly
+  and confirm `POSTGRES` `max_connections` comfortably covers
+  `replicas × connection_limit` plus the worker and any admin tooling.
