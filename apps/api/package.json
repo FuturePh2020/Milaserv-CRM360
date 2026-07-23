@@ -6,7 +6,7 @@
     "dev": "dotenv -e ../../.env -- nest start --watch",
     "build": "nest build",
     "start": "node dist/main.js",
-    "lint": "eslint \"src/**/*.ts\"",
+    "lint": "eslint \"src/**/*.ts\" \"test/**/*.ts\"",
     "typecheck": "tsc --noEmit",
     "test": "jest",
     "test:e2e": "dotenv -e ../../.env -- jest --config ./test/jest-e2e.json --runInBand --forceExit"

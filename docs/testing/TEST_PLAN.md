@@ -106,8 +106,8 @@ for full detail.
 
 | Test | Status |
 |---|---|
-| Generate Lead: ≥50 concurrent requests, no duplicate lead, one active lead per Agent | ✅ verified live: 55 real Agents, 70 available leads, 55 concurrent requests → 55/55 succeeded, 55 distinct leads, 0 duplicates, exactly 55 active `LeadAssignment` rows |
-| Take Lead: two (or more) Agents simultaneously, exactly one succeeds, correct history | ✅ verified live: 10 real Agents racing for one lead → exactly 1 success, 9 conflicts with the exact spec-mandated message, exactly 1 `LeadAssignment` row total (losers wrote nothing) |
+| Generate Lead: ≥50 concurrent requests, no duplicate lead, one active lead per Agent | ✅ verified live in Phase 6 (55 real Agents, 55/55 succeeded, 0 duplicates), and now also a **committed automated e2e test** (`apps/api/test/generate-lead-concurrency.e2e-spec.ts`, 50 agents, 50 leads, `pnpm --filter @milaserv/api test:e2e`) |
+| Take Lead: two (or more) Agents simultaneously, exactly one succeeds, correct history | ✅ verified live in Phase 6 (10 real Agents racing for one lead), and now also a **committed automated e2e test** (`apps/api/test/take-lead-race.e2e-spec.ts`, same 10-agent race, asserted against the DB directly) |
 | Session/permission/no-existing-active-lead preconditions | `apps/api/src/leads/leads.service.spec.ts` | ✅ 9 unit tests |
 | Unique-constraint race (same Agent, two near-simultaneous claims) converted to a clean 409 | same + live-tested indirectly via the 55-agent run | ✅ |
 

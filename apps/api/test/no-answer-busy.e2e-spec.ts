@@ -56,6 +56,7 @@ describe("No Answer / Busy release-and-recontest (e2e)", () => {
     app = moduleRef.createNestApplication();
     app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));
     await app.init();
+    await app.listen(0);
 
     prisma = app.get(PrismaService);
 
