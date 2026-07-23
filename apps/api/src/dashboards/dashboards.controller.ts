@@ -58,13 +58,8 @@ export class DashboardsController {
 
   @Roles(UserRole.TEAM_LEADER, UserRole.SHIFT_SUPERVISOR)
   @Get("converted-leads")
-  getConvertedLeads(
-    @CurrentUser() actor: AuthenticatedUser,
-    @Query() filters: DashboardFilterDto,
-    @Query("page") page = "1",
-    @Query("perPage") perPage = "25",
-  ) {
-    return this.dashboardsService.getConvertedLeads(actor, filters, Number(page), Number(perPage));
+  getConvertedLeads(@CurrentUser() actor: AuthenticatedUser, @Query() filters: DashboardFilterDto) {
+    return this.dashboardsService.getConvertedLeads(actor, filters, filters.page ?? 1, filters.perPage ?? 25);
   }
 
   @Roles(UserRole.TEAM_LEADER, UserRole.SHIFT_SUPERVISOR)

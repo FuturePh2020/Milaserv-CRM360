@@ -1,6 +1,7 @@
 import { ApiPropertyOptional } from "@nestjs/swagger";
 import { CallMatchStatus, DispositionType, LeadType } from "@milaserv/database";
-import { IsDateString, IsEnum, IsOptional, IsString, IsUUID } from "class-validator";
+import { Type } from "class-transformer";
+import { IsDateString, IsEnum, IsInt, IsOptional, IsString, IsUUID, Min } from "class-validator";
 
 /**
  * The spec's "global filters" (section 18) in one shape, reused across every
@@ -57,4 +58,22 @@ export class DashboardFilterDto {
   @IsOptional()
   @IsEnum(CallMatchStatus)
   callVerificationStatus?: CallMatchStatus;
+
+  // Only read by the paginated Converted Leads endpoint - declared here (not a
+  // separate @Query() param) because the global ValidationPipe's
+  // forbidNonWhitelisted rejects the entire request if any query key isn't a
+  // property of the single DTO class bound to it.
+  @ApiPropertyOptional({ default: 1 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page?: number;
+
+  @ApiPropertyOptional({ default: 25 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  perPage?: number;
 }

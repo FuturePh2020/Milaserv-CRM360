@@ -1,6 +1,6 @@
 # Implementation Status
 
-Last updated: 2026-07-23, end of Phase 10 (Phases 0-9 done in earlier passes
+Last updated: 2026-07-23, end of Phase 11 (Phases 0-10 done in earlier passes
 this same session).
 
 This file exists so nobody has to guess what's real. If something isn't
@@ -707,10 +707,132 @@ Known gaps, flagged rather than silently assumed complete:
   replicas incorrectly, since each replica just re-computes independently -
   still flagged because a shared cache is the more scalable long-term fix.
 
-## Phases 11–12
+## Phase 11 — Branding and UX
 
-**Not started.** Branding/UX polish and the security/performance/release-
-readiness checklist are all outstanding.
+**Status: The authenticated app shell and its first real pages are built,
+branded per spec section 22, and live-verified in an actual browser
+(Playwright against the pre-installed Chromium, not just `tsc`/build
+passing) - both desktop and mobile viewports. This phase necessarily also
+built the first working pages behind Phase 10's API, since there was
+nothing to brand before this. Two real bugs were caught by browser testing
+that no amount of `tsc`/unit-test-only verification would have found.**
+
+- Brand tokens (`packages/contracts/src/brand.ts` → `packages/ui/src/tokens.ts`
+  → `apps/web/tailwind.config.ts`) already matched spec section 22's exact
+  hex values from Phase 0 - verified again this phase, unchanged.
+- `apps/web/src/components/AppShell.tsx`: the branded shell every
+  authenticated page renders inside - navy (`#2A3144`) sidebar with the
+  actual `docs/branding/milaserv-logo.jpg` at top-left, white sidebar text,
+  teal active-item pill, white topbar, light-gray (`#F4F7F8`) app
+  background, 12-16px card radius, subtle shadows. Redirects to `/login`
+  if there's no session. Renders the **full** 16-item Admin nav / 9-item
+  Agent nav from spec section 3 - items with a real page behind them are
+  clickable; the rest render as a clearly-labeled, non-interactive "Soon"
+  placeholder rather than a dead link, so the shell's structure matches the
+  spec without pretending unbuilt pages work.
+- **Responsive, not just "hide the sidebar on mobile"**: below the `md`
+  breakpoint the fixed sidebar is replaced by a hamburger button that opens
+  a slide-over panel with the same nav - verified in a 390×844 mobile
+  viewport (both the collapsed header and the open nav panel).
+- **Accessibility**: a "Skip to content" link (visible on focus), visible
+  teal focus rings on every interactive element (verified via an actual
+  keyboard `Tab` press, screenshotted), `aria-current="page"` on the active
+  nav item, `aria-label`s on the icon-only mobile nav buttons, `role="alert"`
+  on form/mutation error text.
+- `apps/web/src/lib/auth.ts` / `api-client.ts`: session-lifetime token +
+  user storage (matches the short-lived-access-token model from spec
+  4/23 - closing the tab means signing in again), and an authenticated
+  fetch wrapper that retries once via the existing httpOnly refresh cookie
+  on a `401` before giving up and redirecting to `/login`.
+- `apps/web/src/app/login/page.tsx`: now shows the logo, stores the full
+  user object from the login response (not just the token), and redirects
+  to the correct home page for the user's role (`/agent` for `AGENT`,
+  `/dashboard` for `TEAM_LEADER`/`SHIFT_SUPERVISOR`) instead of a hardcoded
+  path.
+- `apps/web/src/app/(app)/dashboard/page.tsx` (Overview, spec 18.1): every
+  card from the spec, polling every 15 seconds (`useQuery` +
+  `refetchInterval`, the plain-`GET` fallback half of spec 19's real-time
+  requirement), with the semantic colors from spec 22 applied correctly -
+  green for completed/verified/orders, amber for "leads with no verified
+  call", red for "agents over break allowance" when it's non-zero.
+- `apps/web/src/app/(app)/dashboard/converted-leads/page.tsx` (spec 18.4):
+  navy table header, masked phone/identity, a `MATCHED`/other badge for
+  CDR verification, and a working CSV export button (authenticated
+  `fetch` + blob download, since a plain `<a href>` can't attach a Bearer
+  token).
+- `apps/web/src/app/(app)/agent/page.tsx` (spec 3.2/2.2): Start/End
+  Session, Start/End Break (amber for the break action, teal for the
+  primary/end-break action), and the full "My Daily Results" card set from
+  spec 18.3's Agent-facing subset - all polling every 15s and
+  invalidating on every session/break mutation.
+- **Two real bugs caught by actually clicking through the app in a
+  browser, neither of which `tsc`, `nest build`, or the unit test suite
+  would have caught**:
+  1. **Converted Leads page silently stuck on "Loading…" forever**: the
+     `converted-leads`/`converted-leads/export` endpoints bound `page`/
+     `perPage` as separate `@Query()` parameters *alongside* `@Query()
+     filters: DashboardFilterDto` - since the global `ValidationPipe` has
+     `forbidNonWhitelisted: true` and validates the *entire* query string
+     against the DTO class, any key not declared on that DTO (`page`,
+     `perPage`) made the **whole request** fail with a `400`, regardless
+     of which parameter actually held it. Fixed by declaring `page`/
+     `perPage` directly on `DashboardFilterDto` (with `@Type(() => Number)`
+     coercion) instead of as separate handler parameters, and updating the
+     controller to read them off the one validated object.
+  2. **Ending a session, then a break, then ending the session again left
+     the UI stuck showing "Active" forever** (through no fault of the
+     session logic itself, which was correct end-to-end - confirmed via a
+     direct `curl` that the backend genuinely had no open session
+     afterward): `GET /sessions/current` returns HTTP `200` with
+     `Content-Length: 0` when there is no open session (Nest's behavior
+     for a controller returning `null`), and the frontend's `res.json()`
+     call threw a `SyntaxError` parsing the empty body - which the
+     fetch wrapper only special-cased for an explicit `204`, not a `200`
+     with an empty body. React Query then silently kept showing the last
+     *successful* cached response instead of the new state. Fixed by
+     reading the response as text first and treating any empty body as
+     `null`, for any 2xx status - not just `204`.
+  - Both bugs were caught by literally clicking through the running app
+    with Playwright against the pre-installed Chromium (screenshotting
+    every state transition), not by reading the code - this is exactly why
+    the CLAUDE.md working-style note to "start the dev server and use the
+    feature in a browser before reporting a UI change complete" exists.
+  - Also caught and fixed inline: the sidebar highlighted **two** nav items
+    simultaneously (`Overview` and `Converted Leads` both pill-highlighted)
+    while on `/dashboard/converted-leads`, because the active-item check
+    used `pathname.startsWith(item.href)` and `/dashboard` is a prefix of
+    `/dashboard/converted-leads`. Fixed with exact-path equality.
+
+Known gaps, flagged rather than silently assumed complete:
+
+- **14 of the 16 Admin nav items and 7 of the 9 Agent nav items have no
+  page yet** - Live Shift Monitor, Leads Distributor, Cash/Insurance Leads,
+  Leads Search, Lead Reports, Sessions & Breaks, Monthly Attendance,
+  Yeastar CDR Imports, CDR Matching Reports, Users & Shifts, Import
+  History, Audit Log, Settings (Admin); My Current Lead, Lead Distributor,
+  Cash/Insurance Leads, Leads Search, My Breaks, My Session History
+  (Agent). They render as an honest "Soon" placeholder in the nav rather
+  than a broken link.
+- **No design-system component library beyond `StatCard`** - each page
+  hand-rolls its markup with Tailwind utility classes against the brand
+  tokens; a growing page count would benefit from extracting shared table/
+  badge/button components into `packages/ui`.
+- **The SSE endpoint (`/dashboards/overview/stream`) is not wired up in
+  the frontend** - the Overview page uses the 15-second polling fallback
+  only. Real-time push would need an `EventSource` client and is a
+  reasonable follow-up, not required by spec 19 which explicitly treats
+  polling as an acceptable fallback.
+- **No automated frontend test suite** (Jest/Vitest component tests,
+  Playwright as a committed E2E suite) - verification this phase was
+  manual/scripted browser testing during development, not a repeatable
+  CI-run suite. `apps/web` still has zero `test` script.
+- Color contrast was eyeballed against the spec's exact hex values, not
+  run through an automated contrast-ratio checker (e.g. axe-core).
+
+## Phase 12
+
+**Not started.** The security/performance/release-readiness checklist is
+outstanding.
 
 ## Quality gates, as of this update
 
@@ -724,6 +846,7 @@ cd apps/worker && tsc --noEmit             # clean
 cd apps/web && tsc --noEmit                # clean
 cd apps/api && nest build                  # clean
 cd apps/worker && tsc -p tsconfig.json     # clean
+cd apps/web && next build                  # clean, all 6 routes prerendered
 ```
 
 `eslint` could not be run this session - the repo has no `eslint.config.js`

@@ -194,12 +194,49 @@ aggregate correctness or genuine query-count-at-scale behavior.
 
 Not yet built (see `docs/implementation/IMPLEMENTATION_STATUS.md`):
 
-- No web UI - every check above was done via direct API calls (curl), not
-  through a browser.
+- Every check above was done via direct API calls (curl), not through a
+  browser - Phase 11 built the Overview/Converted Leads pages that now
+  call these endpoints from an actual UI (see below).
 - CSV export for Overview/Leads Summary/Agent Performance (only Converted
   Leads has one).
 - Monthly Attendance report endpoint; Audit Log listing endpoint.
 - Shift-Supervisor "broader access" grant mechanism.
+
+## Branding and UX (Phase 11)
+
+Verified by actually running the app: `apps/api`/`apps/worker` live, `apps/web`
+via `next dev`, driven with Playwright against the environment's pre-installed
+Chromium (screenshotting every state, not just checking `tsc`/build exit
+codes) - per CLAUDE.md's working-style note to use a UI change in a browser
+before calling it done. No committed automated frontend test suite exists yet
+(see gaps below) - this was scripted manual verification during development.
+
+| Test | Status |
+|---|---|
+| Login page shows the Milaserv logo, brand colors, accessible labels | ✅ verified live (screenshot) |
+| Login redirects to the correct home page per role (`/agent` for Agent, `/dashboard` for Team Leader/Shift Supervisor) | ✅ verified live for both roles |
+| Authenticated shell: navy sidebar, logo top-left, white sidebar text, teal active-item pill, white cards, light-gray background, navy table headers | ✅ verified live (screenshot), matches spec 22 exactly |
+| Full spec-section-3 navigation renders for both roles; unbuilt items show a clear disabled "Soon" state instead of a dead link | ✅ verified live |
+| Sidebar highlights exactly one nav item, never two at once | ✅ **caught a real bug live**: `/dashboard/converted-leads` highlighted both "Overview" and "Converted Leads" (prefix-match bug in the active-item check); fixed with exact-path equality, re-verified |
+| Responsive: mobile viewport (390×844) collapses the sidebar behind a hamburger button; the slide-over nav panel opens/closes correctly | ✅ verified live at both viewports |
+| Keyboard navigation: Tab reaches interactive elements with a visible focus ring | ✅ verified live (screenshotted the first Tab stop on the login form) |
+| Overview page: all cards render, correct semantic colors (green completed/verified/orders, amber "no verified call", red "over break allowance" when non-zero), 15s polling | ✅ verified live against real accumulated data |
+| Converted Leads page: table renders, masked phone/identity, CDR verification badge, CSV export downloads a real file | ✅ **caught a real bug live**: the page was stuck on "Loading…" forever - the `perPage` query param, bound as a separate `@Query()` alongside a whitelisted DTO, made the *entire* request 400 under `forbidNonWhitelisted`. Fixed by moving `page`/`perPage` onto the DTO itself; re-verified live, renders correctly |
+| Agent page: Start Session → Start Break → End Break → End Session, each transition reflected immediately in the UI | ✅ **caught a real bug live**: after the full cycle, the UI kept showing "Active" forever even though the backend genuinely had no open session (confirmed via direct `curl`) - `GET /sessions/current`'s `200` + empty-body response for "no session" wasn't handled by the frontend's JSON parsing (which only special-cased an explicit `204`). Fixed in the API client to treat any empty 2xx body as `null`; re-verified live, the full cycle now correctly ends on "No active session" |
+| Agent page: My Daily Results cards render and update after each mutation | ✅ verified live |
+| `next build` (production build) succeeds, all routes prerender | ✅ verified |
+
+Not yet built:
+
+- Automated frontend tests (component tests, a committed Playwright/E2E
+  suite) - `apps/web` has no `test` script.
+- Pages for 14/16 Admin nav items and 7/9 Agent nav items (see
+  `docs/implementation/IMPLEMENTATION_STATUS.md` for the full list).
+- Automated color-contrast checking (e.g. axe-core) - contrast was
+  eyeballed against the spec's exact hex values only.
+- SSE wired into the frontend (Overview page uses the 15s polling
+  fallback only; the server-side SSE endpoint from Phase 10 is unused by
+  the UI so far).
 
 ## Idle break (Phase 5)
 
