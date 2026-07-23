@@ -1,21 +1,23 @@
-import { PrismaClient, ImportStatus } from "@milaserv/database";
+import { PrismaClient, ImportStatus, ImportSourceType } from "@milaserv/database";
+import type { ImportDateFormat } from "@milaserv/validation";
+import { processCashRows } from "./cash.processor";
+import { processInsuranceRows } from "./insurance.processor";
 
 const prisma = new PrismaClient();
 
+const VALID_DATE_FORMATS: ImportDateFormat[] = ["DD/MM/YYYY", "MM/DD/YYYY", "YYYY-MM-DD"];
+
 /**
- * Generic batch-processing step: marks the batch complete based on the
- * validity counts already computed at preview time. This does not yet
- * create Lead/LeadMedicationItem rows - grouping and normalization are
- * source-type-specific (Cash vs Insurance vs CDR) and are implemented in
- * Phase 3/9. This Phase 2 step establishes the queue -> status transition
- * -> idempotency plumbing those phases plug into.
+ * Batch-processing step: Cash/Insurance batches are grouped into
+ * Lead/LeadMedicationItem rows here (spec §8/§9); CDR batches are not yet
+ * handled (Phase 9 owns CdrStagingRecord/CdrRecord population). Transitions
+ * QUEUED -> PROCESSING -> COMPLETED/COMPLETED_WITH_ERRORS/FAILED and is a
+ * no-op if redelivered for a batch that already finished.
  */
 export async function processBatch(batchId: string): Promise<void> {
   const batch = await prisma.leadImportBatch.findUniqueOrThrow({ where: { id: batchId } });
 
   if (batch.status !== ImportStatus.QUEUED) {
-    // Re-delivered job (e.g. after a worker restart) for a batch that already
-    // finished - do nothing rather than reprocess and double-count.
     return;
   }
 
@@ -24,9 +26,48 @@ export async function processBatch(batchId: string): Promise<void> {
     data: { status: ImportStatus.PROCESSING },
   });
 
-  const finalStatus =
-    batch.invalidRows > 0 ? ImportStatus.COMPLETED_WITH_ERRORS : ImportStatus.COMPLETED;
+  if (batch.sourceType === ImportSourceType.CASH || batch.sourceType === ImportSourceType.INSURANCE) {
+    const dateFormat = batch.dateFormat as ImportDateFormat | null;
+    if (!dateFormat || !VALID_DATE_FORMATS.includes(dateFormat)) {
+      await prisma.leadImportError.create({
+        data: {
+          batchId,
+          sourceRowNumber: 0,
+          errorCode: "MISSING_DATE_FORMAT",
+          errorMessage: "Batch has no valid date format selected; cannot parse date columns.",
+        },
+      });
+      await prisma.leadImportBatch.update({
+        where: { id: batchId },
+        data: { status: ImportStatus.FAILED, processedAt: new Date() },
+      });
+      return;
+    }
 
+    const result =
+      batch.sourceType === ImportSourceType.CASH
+        ? await processCashRows(prisma, batchId, dateFormat)
+        : await processInsuranceRows(prisma, batchId, dateFormat);
+
+    const totalErrors = await prisma.leadImportError.count({ where: { batchId } });
+    const finalStatus = totalErrors > 0 ? ImportStatus.COMPLETED_WITH_ERRORS : ImportStatus.COMPLETED;
+
+    await prisma.leadImportBatch.update({
+      where: { id: batchId },
+      data: {
+        groupedLeadCount: result.leadsCreated + result.leadsAlreadyExisted,
+        medicationItemCount: result.itemsUpserted,
+        status: finalStatus,
+        processedAt: new Date(),
+      },
+    });
+
+    return;
+  }
+
+  // CDR: staging/matching lands in Phase 9. For now, just close the batch out
+  // using the structural-validation counts from Phase 2.
+  const finalStatus = batch.invalidRows > 0 ? ImportStatus.COMPLETED_WITH_ERRORS : ImportStatus.COMPLETED;
   await prisma.leadImportBatch.update({
     where: { id: batchId },
     data: { status: finalStatus, processedAt: new Date() },

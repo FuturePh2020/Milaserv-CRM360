@@ -36,8 +36,12 @@ current status.
 | Invalid price flagged, not silently coerced | same | ✅ |
 | DD/MM/YYYY and MM/DD/YYYY parse per explicit format (no guessing) | `packages/validation/src/dates.test.ts` | ✅ |
 | Impossible dates rejected | same | ✅ |
+| 2-digit years (as actually rendered by the real sample files) expand correctly | same | ✅ (caught a real bug live: unparsed 2-digit years silently produced year 26 AD) |
 | Refill date calculation | same | ✅ |
 | Refill period outside 26–80 rejected | same | ✅ |
+| Cash legacy status mapping (`Answered - No Order` etc.) | `packages/validation/src/cash-legacy-status.test.ts` | ✅ |
+| Legacy `Agent` label "Name (ext)" parsing | same | ✅ |
+| Cash/Insurance grouping and item key precedence (preferred + fallback) | `packages/validation/src/grouping-keys.test.ts` | ✅ |
 
 ## Import framework (Phase 2)
 
@@ -53,11 +57,22 @@ current status.
 | Re-uploading an identical file is flagged `alreadyUploadedBefore` | same | ✅ verified live, 🚧 not automated |
 | In-file duplicate row detection | same (rows 23–28 of `cash_leads.xlsx`, which are genuinely blank duplicates) | ✅ verified live, 🚧 not automated |
 
-Not yet built (Phase 3/9, per `docs/implementation/IMPLEMENTATION_STATUS.md`):
+## Cash and Insurance parsers (Phase 3)
 
-- Insurance grouping: multiple medication rows → one lead, items separate, long ids exact. 🚧
-- Cash grouping: repeated phone/date/branch rows → one lead with multiple items; ambiguous date format requires explicit selection. 🚧
-- Row/business-key-level idempotency (as opposed to whole-file-checksum idempotency, which is done). 🚧
+All verified live against a real Postgres instance, starting from empty
+`leads`/`people` tables (see `docs/implementation/IMPLEMENTATION_STATUS.md`
+for full detail) - not yet automated as integration tests:
+
+| Test | Status |
+|---|---|
+| Insurance grouping: multiple medication rows for the same claim → one lead, items separate | ✅ verified live (18 rows → 8 leads/18 items) |
+| Insurance long ids preserved exactly (national id, claim/invoice numbers) | ✅ verified live, spot-checked in the DB, no precision loss/scientific notation |
+| Cash grouping: repeated phone/date/branch rows → one lead with multiple items | ✅ verified live (the real `500210989`/`P440` pair merged into one 2-item lead) |
+| Ambiguous date format requires explicit selection | ✅ enforced (`MISSING_DATE_FORMAT` batch failure if unset); 🚧 no automated test of the rejection path yet |
+| `1.26K` price parsing end-to-end through the Cash processor | ✅ verified live (parsed and stored as `1260`) |
+| Raw values preserved (`LeadImportRow.rawData`) | ✅ verified live |
+| Grouping/item-key idempotency across separate import batches (not just within one file) | ✅ verified live: re-uploaded and fully re-processed the identical `cash_leads.xlsx`; lead count stayed 18, item count stayed 19 |
+| Rows that fail Cash/Insurance-specific parsing (bad phone/date) despite passing Phase 2's structural check are recorded as new import errors | ✅ implemented (`CASH_PARSE_FAILED`/`INSURANCE_PARSE_FAILED`); 🚧 not yet exercised against a real malformed row in this session's testing |
 
 ## Lead distribution (Phase 6) — not yet built
 

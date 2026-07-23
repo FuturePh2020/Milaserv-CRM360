@@ -30,6 +30,14 @@ export function parseImportDate(input: string, format: ImportDateFormat): DatePa
     return { raw, isoDate: null, valid: false };
   }
 
+  // The real sample files (cash_leads.xlsx, med_gulf_sample.xlsx) render dates
+  // with 2-digit years (e.g. "5/6/26"). Without expansion, Date.UTC(26, ...)
+  // silently produces the year 26 AD instead of 2026 - caught via live testing
+  // against the actual sample data, not a hypothetical.
+  if (year < 100) {
+    year += 2000;
+  }
+
   const date = new Date(Date.UTC(year, month - 1, day));
   if (date.getUTCMonth() !== month - 1) {
     return { raw, isoDate: null, valid: false }; // e.g. day 31 in a 30-day month
