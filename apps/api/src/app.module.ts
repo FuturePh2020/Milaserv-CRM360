@@ -13,6 +13,7 @@ import { ImportsModule } from "./imports/imports.module";
 import { SessionsModule } from "./sessions/sessions.module";
 import { DevicesModule } from "./devices/devices.module";
 import { LeadsModule } from "./leads/leads.module";
+import { DispositionsModule } from "./dispositions/dispositions.module";
 import { AuditModule } from "./audit/audit.module";
 import { JwtAuthGuard } from "./common/guards/jwt-auth.guard";
 import { RolesGuard } from "./common/guards/roles.guard";
@@ -31,6 +32,7 @@ import { RolesGuard } from "./common/guards/roles.guard";
     SessionsModule,
     DevicesModule,
     LeadsModule,
+    DispositionsModule,
   ],
   controllers: [AppController],
   providers: [

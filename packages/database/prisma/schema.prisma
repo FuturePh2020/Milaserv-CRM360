@@ -612,6 +612,12 @@ model LeadDisposition {
   notes          String?
   source         String          @default("AGENT")
   previousValue  Json?           @map("previous_value")
+  // ALREADY_DISPENSED conditional fields (spec 14.2). Enforced 26-80 at the
+  // application layer (packages/validation calculateNextRefillDate) and
+  // defended at the DB layer with a CHECK constraint (see migration).
+  lastDispenseDate DateTime?     @map("last_dispense_date") @db.Date
+  refillPeriodDays Int?          @map("refill_period_days")
+  nextRefillDate   DateTime?     @map("next_refill_date") @db.Date
   createdAt      DateTime        @default(now()) @map("created_at")
   updatedAt      DateTime        @updatedAt @map("updated_at")
   editedById     String?         @map("edited_by_id")
@@ -620,6 +626,7 @@ model LeadDisposition {
   @@index([leadId])
   @@index([agentId, createdAt])
   @@index([disposition])
+  @@index([nextRefillDate])
   @@map("lead_dispositions")
 }
 

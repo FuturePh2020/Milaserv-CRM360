@@ -1,6 +1,6 @@
 # Implementation Status
 
-Last updated: 2026-07-23, end of Phase 6 (Phases 0-5 done in earlier passes
+Last updated: 2026-07-23, end of Phase 7 (Phases 0-6 done in earlier passes
 this same session).
 
 This file exists so nobody has to guess what's real. If something isn't
@@ -378,16 +378,83 @@ Not built yet (Phase 7/8, as planned):
 - Leads Search (Phase 8) - `takeLead` requires a `leadId` the caller already
   knows; there's no search endpoint yet to find one.
 
-## Phases 7–12
+## Phase 7 — Call Customer and dispositions
 
-**Not started.** Dispositions, search, CDR matching, dashboards, branding
-polish, and the release checklist are all outstanding.
+**Status: Done and live-verified, including the spec's literal No Answer/Busy
+scenario end-to-end.**
+
+- `apps/api/src/dispositions/dispositions.service.ts`:
+  - `callCustomer`: verifies ownership (an active `LeadAssignment` for this
+    Agent) and session, creates a `CallAttempt` placeholder, moves
+    `PENDING_CALL` → `CUSTOMER_CONTACTED`. The click itself is explicitly
+    not proof of a real call (spec §12.2) - Yeastar CDR verification is
+    Phase 9.
+  - `saveDisposition`: requires the lead to already be `CUSTOMER_CONTACTED`
+    (i.e. Call Customer must happen first), then validates and applies each
+    disposition's specific rule:
+    - `ORDER_CREATED`: requires `externalOrderNumber`, unique (DB
+      constraint, caught `P2002` → clean `409`), → `CONVERTED_TO_ORDER`,
+      closes the assignment. Because the assignment only closes *after* the
+      order reference is successfully created, an Agent who hits the
+      duplicate-number conflict is still holding their active lead
+      afterward - confirmed live, matching "Agent cannot Generate Lead
+      until successfully saved."
+    - `ALREADY_DISPENSED`: requires `lastDispenseDate` + `refillPeriodDays`
+      (26-80, validated at the DTO layer, the service layer via
+      `calculateNextRefillDate`, and now the DB via a `CHECK` constraint
+      added this phase), computes and stores `nextRefillDate` on the
+      `LeadDisposition` row → `COMPLETED`, closes the assignment.
+    - `RESCHEDULE_FOLLOW_UP`: requires `followUpDate` + `followUpPeriod`,
+      creates a `LeadFollowUp` row → `FOLLOW_UP_SCHEDULED`, and
+      deliberately does **not** close the assignment (spec §14.3 - stays
+      with the same Agent, and is automatically excluded from Take
+      Lead/Generate Lead eligibility since those only ever select
+      `AVAILABLE`/`CALLBACK_ELIGIBLE` leads).
+    - `NO_ANSWER_BUSY`: the revised ownership rule (spec §14.4) →
+      `CALLBACK_ELIGIBLE`, closes the assignment immediately so another
+      Agent can take the callback, while the original assignment row stays
+      in history (released, not deleted).
+    - `WRONG_NUMBER` → `INVALID_NUMBER`; the other five dispositions →
+      `COMPLETED`. Both close the assignment.
+- A real bug was caught by the new unit tests before it ever reached live
+  testing: the disposition switch statement had no case for
+  `ALREADY_DISPENSED`, so it fell through to a hard `BadRequestException`
+  ("Unhandled disposition type"). Fixed by explicitly including it among
+  the dispositions that resolve to `COMPLETED`.
+- **Live end-to-end verification, this session, against a real Postgres
+  instance, reproducing the spec's literal No Answer/Busy scenario**:
+  Agent A took a lead → called the customer → saved `NO_ANSWER_BUSY` →
+  confirmed the lead flipped to `CALLBACK_ELIGIBLE` → fired concurrent Take
+  Lead calls from Agent B and Agent C for that same lead → confirmed
+  exactly one succeeded and the other got the spec's literal conflict
+  message → confirmed in the DB that there are exactly two
+  `LeadAssignment` rows for this lead: Agent A's original (released, not
+  deleted - `releasedAt` set, `activeAgentMarker` null) and the winner's
+  new active one. Also live-verified Order Created's duplicate rejection
+  (second attempt with the same `externalOrderNumber` → `409`, and the
+  Agent was confirmed still holding their active lead afterward since the
+  failed save never closed the assignment).
+- 14 new unit tests (`dispositions.service.spec.ts`).
+
+Not built yet:
+
+- Admin/Supervisor reassignment of a `FOLLOW_UP_SCHEDULED` lead stuck with
+  an Agent (spec allows this "with required reason"; no such endpoint
+  exists yet).
+- Editing a previously saved disposition (`LeadDisposition.previousValue`/
+  `editedById`/`editedAt` exist in the schema for this but nothing writes
+  to them yet).
+
+## Phases 8–12
+
+**Not started.** Search, CDR matching, dashboards, branding polish, and the
+release checklist are all outstanding.
 
 ## Quality gates, as of this update
 
 ```
 pnpm --filter @milaserv/validation test    # 43/43 passing
-pnpm --filter @milaserv/api test           # 39/39 passing (auth + imports + sessions + devices + leads)
+pnpm --filter @milaserv/api test           # 53/53 passing (auth + imports + sessions + devices + leads + dispositions)
 pnpm --filter @milaserv/worker test        # 0 tests (processors verified via live integration testing instead - see above)
 cd packages/database && prisma validate    # valid
 cd apps/api && tsc --noEmit                # clean

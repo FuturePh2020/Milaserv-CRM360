@@ -116,15 +116,19 @@ Not yet built (Phase 7/8):
 - Releasing an active lead (no disposition flow exists yet to close an assignment). 🚧
 - Leads Search (Take Lead currently requires a known lead id). 🚧
 
-## Dispositions (Phase 7) — not yet built
+## Dispositions (Phase 7)
 
-- No Answer/Busy: Agent A owns → saves disposition → released → Callback
-  Eligible → Agent B takes → Agent C cannot take → Agent A history intact. 🚧
-- Follow-up: remains owned, not Take-Lead-eligible, supervisor can reassign. 🚧
-- Order Created: mandatory external number, duplicate rejected, Agent blocked
-  until save completes. 🚧
-- Refill: only 26–80 accepted (parsing already covered above; end-to-end
-  disposition flow still 🚧).
+| Test | Status |
+|---|---|
+| Call Customer requires ownership + active session; creates a CallAttempt; PENDING_CALL → CUSTOMER_CONTACTED | ✅ unit tested + live |
+| Disposition requires CUSTOMER_CONTACTED first | ✅ unit tested |
+| No Answer/Busy: Agent A owns → saves disposition → released → Callback Eligible → Agent B takes → Agent C cannot take → Agent A history intact | ✅ **verified live** end-to-end against a real Postgres instance, reproducing this exact scenario with real accounts and a real race between B and C |
+| Follow-up: remains owned, not Take-Lead-eligible | ✅ unit tested (`leadAssignment.update` confirmed *not* called) |
+| Follow-up: supervisor can reassign with reason | 🚧 not built - no reassignment endpoint yet |
+| Order Created: mandatory external number, duplicate rejected, Agent blocked until save completes | ✅ **verified live**: duplicate order number → `409`, and the Agent was confirmed still holding the active lead afterward since the failed save never released it |
+| Refill: only 26–80 accepted, correct date computed, stored on the disposition record | ✅ unit tested end-to-end through the disposition save (parsing itself already covered in `packages/validation`); DB `CHECK` constraint added as defense-in-depth |
+| Wrong Number → INVALID_NUMBER, closes assignment | ✅ unit tested |
+| Other final dispositions → COMPLETED, closes assignment | ✅ unit tested (caught a real bug: `ALREADY_DISPENSED` was missing from the switch statement entirely until this test failed) |
 
 ## CDR (Phase 9) — not yet built
 
