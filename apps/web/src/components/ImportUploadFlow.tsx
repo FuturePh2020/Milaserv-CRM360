@@ -27,6 +27,8 @@ export function ImportUploadFlow({
   const [sourceTimezone, setSourceTimezone] = useState("Asia/Riyadh");
   const [batchId, setBatchId] = useState<string | null>(null);
   const [step, setStep] = useState<"idle" | "uploading" | "previewing" | "confirmed">("idle");
+  const isDemoMode = process.env.NEXT_PUBLIC_DEMO_MODE === "true";
+  const [demoAcknowledged, setDemoAcknowledged] = useState(false);
 
   const batchQuery = useQuery({
     queryKey: ["import-batch", batchId],
@@ -84,13 +86,26 @@ export function ImportUploadFlow({
     <div className="rounded-card border border-border bg-white p-4 shadow-sm">
       <h3 className="mb-3 font-semibold text-navy">Upload {sourceType === "CDR" ? "Yeastar CDR" : leadType} File</h3>
 
+      {isDemoMode && (
+        <label className="mb-3 flex items-start gap-2 rounded-md bg-amber/10 p-3 text-sm text-app-text">
+          <input
+            type="checkbox"
+            checked={demoAcknowledged}
+            onChange={(e) => setDemoAcknowledged(e.target.checked)}
+            className="mt-0.5"
+          />
+          This is a public demo environment. I confirm this file contains test data only — no real
+          customer, medical, phone, national ID, or payment information.
+        </label>
+      )}
+
       <div className="mb-3 flex flex-wrap items-end gap-3">
         <input
           ref={fileInputRef}
           type="file"
           accept=".xlsx,.xls,.csv"
           className="text-sm"
-          disabled={step !== "idle"}
+          disabled={step !== "idle" || (isDemoMode && !demoAcknowledged)}
         />
         {sourceType !== "CDR" ? (
           <div>
@@ -119,7 +134,7 @@ export function ImportUploadFlow({
         )}
         <button
           onClick={() => uploadMutation.mutate()}
-          disabled={step !== "idle" || uploadMutation.isPending}
+          disabled={step !== "idle" || uploadMutation.isPending || (isDemoMode && !demoAcknowledged)}
           className="rounded-md bg-teal px-4 py-2 text-sm font-medium text-white hover:bg-deep-teal disabled:opacity-60"
         >
           {uploadMutation.isPending ? "Uploading & Previewing…" : "Upload & Preview"}

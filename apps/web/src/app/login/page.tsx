@@ -36,7 +36,12 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-app-bg p-4">
+    <main className="flex min-h-screen flex-col items-center justify-center bg-app-bg p-4">
+      {process.env.NEXT_PUBLIC_DEMO_MODE === "true" && (
+        <div className="mb-4 w-full max-w-sm rounded-md bg-amber px-4 py-2 text-center text-xs font-semibold text-white">
+          DEMO ENVIRONMENT — test data only, not a real deployment.
+        </div>
+      )}
       <div className="w-full max-w-sm">
         <div className="mb-6 flex justify-center">
           <Image src="/logo.jpg" alt="Milaserv" width={96} height={96} className="rounded-card" priority />
