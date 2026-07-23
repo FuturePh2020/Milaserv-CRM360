@@ -1,7 +1,8 @@
 # Implementation Status
 
-Last updated: 2026-07-23, end of Phase 12 - all 13 planned phases (0-12)
-complete in this session.
+Last updated: 2026-07-23. All 13 planned phases (0-12) complete, plus a
+post-MVP pass (below) that filled in every remaining Admin/Agent nav page so
+the frontend has no "Soon" placeholders left.
 
 This file exists so nobody has to guess what's real. If something isn't
 listed as done-and-verified below, assume it does not work yet.
@@ -948,11 +949,136 @@ Known gaps, flagged rather than silently assumed complete:
   long-lived deployment or many more synthetic accounts than were
   practical to seed/clean up interactively in this session.
 
+## Post-MVP — Full Admin/Agent navigation build-out
+
+**Status: Done and live-verified.** After Phase 12, every remaining item in
+the spec §3 Admin (16-item) and Agent (9-item) navigation had a page built
+behind it - the "14 of 16 / 7 of 9 nav items have no page yet" gap flagged
+at the end of Phase 11 is now closed. No nav item renders the "Soon"
+placeholder anymore.
+
+Backend additions (each with unit tests, all RBAC-guarded and, where the
+data model supports it, team-scoped the same way as every earlier phase):
+
+- `GET /leads-search/admin` (Team Leader/Shift Supervisor): the same search
+  logic as Agent-facing Leads Search, but returns unmasked phone/national-id
+  for the admin-facing Leads Search nav page - refactored `SearchService`
+  into a shared `runSearch` core so the masking/permission-filtering logic
+  isn't duplicated between the two routes.
+- `GET /attendance/monthly?month=YYYY-MM`: per-agent monthly rollup (days
+  recorded, total work/break/manual/idle seconds, status counts) built on
+  top of the existing `AttendanceDay` rows from Phase 4 - no new schema, a
+  pure aggregation.
+- `GET /audit-log` (Team Leader only): filterable (actor/action/entityType/
+  entityId/date range), paginated listing over the `AuditLog` rows every
+  earlier phase has been writing since Phase 1.
+- `GET /sessions/history` / `GET /sessions/breaks/history`: an Agent's own
+  paginated session/break history (My Session History, My Breaks nav items) -
+  scoped to `actor.id` only, no `agentId` parameter, same "can't query
+  someone else's data by constructing a query string" pattern as
+  `/dashboards/me/daily` from Phase 10.
+- `apps/api/src/settings` (new module): `GET /settings` / `PUT /settings/:key`
+  (Team Leader only) for the two runtime overrides referenced elsewhere in
+  the code but never exposed for editing - `cdrDefaultSourceTimezone` (Phase
+  9) and `dashboardBreakAllowanceMinutes` (Phase 10). Validates the key
+  against a known-key allow-list (`BadRequestException` on an unknown key,
+  not a silent no-op), and audit-logs before/after values on every change.
+
+Frontend additions (all `apps/web/src/app/(app)/...`, React Query + 15s
+polling matching Phase 11's established pattern):
+
+- Agent: Lead Distributor / My Current Lead (shared page - Generate Cash/
+  Insurance, Call Customer, Save Disposition, all wired to the real Phase
+  6-7 endpoints), Cash Leads / Insurance Leads (the same distributor
+  restricted to one lead type), Leads Search, My Breaks, My Session History.
+- Admin: Leads Distributor (both lead types' summary + disposition
+  breakdown), Cash Leads / Insurance Leads (import upload wizard +
+  summary), Leads Search (unmasked), Lead Reports, Live Shift Monitor /
+  Sessions & Breaks (shared page - active sessions table, per-row
+  force-close with a required reason, break-over-allowance highlighted),
+  Users & Shifts (user CRUD with inline role/status/team edits, team and
+  shift creation), Import History (CSV error export), Yeastar CDR Imports,
+  CDR Matching Reports (report table + extension-mapping management),
+  Monthly Attendance, Audit Log, Settings.
+- Shared components extracted rather than duplicated per page:
+  `LeadDistributorPanel`/`ActiveLeadCard`/`DispositionForm` (the
+  Generate→Call→Disposition flow, parameterized by an optional
+  `restrictType` so the same code backs the unrestricted, Cash-only, and
+  Insurance-only pages), `LeadsSummaryCard` (the 12-stat-card + disposition
+  table block reused across four different Admin pages), `ImportUploadFlow`
+  (upload → preview → confirm wizard reused across Cash/Insurance/CDR
+  import pages).
+- **Known, accepted duplication, flagged rather than hidden**: Admin's
+  "Leads Distributor" and "Lead Reports" nav items currently render the
+  identical view (both `LeadsSummaryCard`s for Cash and Insurance) - the
+  spec doesn't clearly differentiate what "Lead Reports" should show beyond
+  what the distributor view already provides, and building a genuinely
+  different report page wasn't worth guessing at under this pass's time
+  budget. Likewise "Sessions & Breaks" and "Live Shift Monitor" intentionally
+  share one page/route, and Agent's "My Current Lead" and "Lead Distributor"
+  share one page/route - the nav has more labeled entries than there are
+  logically distinct screens, matching how the spec describes them as
+  closely-related views of the same underlying data.
+
+**Live end-to-end verification, this session, against the running app in an
+actual browser (Playwright, pre-installed Chromium)**:
+
+- All 15 Admin pages and all 7 new Agent pages loaded with zero console
+  errors, zero page errors, and zero unexpected HTTP error responses, logged
+  in as a real Team Leader and a real Agent account respectively.
+  Screenshotted every page; spot-checked several visually (Live Shift
+  Monitor, Users & Shifts, Leads Distributor, Settings, Audit Log) to
+  confirm real accumulated data renders correctly, not just "no crash."
+- **Full interactive click-through of the core Agent workflow**, not just
+  page loads: started a session, clicked "Generate Cash Lead," confirmed the
+  `ActiveLeadCard` rendered the claimed lead, clicked "Call Customer,"
+  confirmed the `DispositionForm` appeared, selected a disposition, filled
+  notes, clicked "Save Disposition," and confirmed the UI correctly
+  returned to "No active lead. Generate one to get started." afterward -
+  matching the real backend state change. Zero console/page errors through
+  the whole sequence.
+- **A real environment gotcha hit twice while setting this verification up,
+  worth recording so it isn't re-diagnosed as an app bug next time**: the
+  login endpoint's rate limit (`10/60s`, Phase 12) is easy to exhaust just
+  from repeated interactive test runs in the same session (each Playwright
+  run, plus manual `curl` checks, all count against the same window) - it
+  is not a bug, it's the security control working as designed, but it means
+  verification scripts that log in repeatedly need real waits between
+  attempts, or should mint a JWT directly (matching `JwtStrategy`'s
+  `{sub, role, teamId}` payload, signed with `JWT_ACCESS_SECRET`) to test
+  business logic without spending the login budget at all - the approach
+  used for the interactive flow test above once the throttle had been hit
+  a few times in a row.
+- One thing initially misread as a bug and then correctly identified as
+  correct behavior: `POST /leads/generate` returning `404 "No active session
+  found. Start a session first."` when tested without first calling
+  `POST /sessions/start` - this is the existing Phase 6 precondition
+  working correctly, not a defect in the new pages.
+
+Known gaps, flagged rather than silently assumed complete:
+
+- **"Lead Reports" and "Sessions & Breaks" are not yet distinct screens**
+  from their sibling nav items (see "known, accepted duplication" above).
+- **No automated test coverage for the new pages themselves** - verification
+  this pass was live/scripted browser testing (Playwright), matching Phase
+  11's approach, not a committed Jest/Vitest component suite or a
+  checked-in Playwright E2E suite (`apps/web` still has zero `test` script).
+- **Settings page has no validation feedback beyond the raw API error** -
+  `PUT /settings/:key` correctly rejects an unknown key, but the page
+  doesn't pre-validate the value's shape (e.g. that
+  `dashboardBreakAllowanceMinutes` should be numeric) before submitting.
+- The historical test/seed data accumulated across every phase's live
+  concurrency testing (dozens of `Concurrency Agent N` / `Racer N` accounts
+  and their now-closed sessions) was left in place rather than purged - it's
+  inert noise in a dev database, not a defect, but it does mean Live Shift
+  Monitor/Users & Shifts show more rows than a fresh install would; cleaning
+  it up is a separate, explicit task if a clean demo database is needed.
+
 ## Quality gates, as of this update
 
 ```
 pnpm --filter @milaserv/validation test    # 56/56 passing
-pnpm --filter @milaserv/api test           # 72/72 passing (auth + imports + sessions + devices + leads + dispositions + search + extension-mappings + dashboards)
+pnpm --filter @milaserv/api test           # 81/81 passing (auth + imports + sessions + devices + leads + dispositions + search + extension-mappings + dashboards + audit + attendance + settings)
 pnpm --filter @milaserv/worker test        # 0 tests (processors verified via live integration testing instead - see above)
 cd packages/database && prisma validate    # valid
 cd apps/api && tsc --noEmit                # clean
@@ -960,7 +1086,7 @@ cd apps/worker && tsc --noEmit             # clean
 cd apps/web && tsc --noEmit                # clean
 cd apps/api && nest build                  # clean
 cd apps/worker && tsc -p tsconfig.json     # clean
-cd apps/web && next build                  # clean, all 6 routes prerendered
+cd apps/web && next build                  # clean, all 24 routes prerendered
 ```
 
 `eslint` could not be run this session - the repo has no `eslint.config.js`

@@ -230,13 +230,47 @@ Not yet built:
 
 - Automated frontend tests (component tests, a committed Playwright/E2E
   suite) - `apps/web` has no `test` script.
-- Pages for 14/16 Admin nav items and 7/9 Agent nav items (see
-  `docs/implementation/IMPLEMENTATION_STATUS.md` for the full list).
 - Automated color-contrast checking (e.g. axe-core) - contrast was
   eyeballed against the spec's exact hex values only.
 - SSE wired into the frontend (Overview page uses the 15s polling
   fallback only; the server-side SSE endpoint from Phase 10 is unused by
   the UI so far).
+
+(The "14/16 Admin, 7/9 Agent nav items have no page" gap noted in earlier
+versions of this table is now closed - see "Full navigation build-out"
+below.)
+
+## Full navigation build-out (post-MVP pass)
+
+Closes the "no page yet" gap flagged at the end of Phase 11 for every
+remaining spec §3 nav item. Full detail in
+`docs/implementation/IMPLEMENTATION_STATUS.md`.
+
+| Test | Location | Status |
+|---|---|---|
+| Admin-scoped Leads Search returns unmasked phone/identity, still permission-filtered | `apps/api/src/search/search.service.spec.ts` | ✅ |
+| Monthly Attendance rollup shape and per-agent aggregation | `apps/api/src/sessions/attendance.service.spec.ts` | ✅ |
+| Audit Log listing: filters, pagination | `apps/api/src/audit/audit.service.spec.ts` | ✅ |
+| Settings: unknown key rejected, known key upserts and audit-logs before/after | `apps/api/src/settings/settings.service.spec.ts` | ✅ |
+| Agent session/break history scoped to caller only (no `agentId` param exists to request another agent's) | manual, this session (route design mirrors `/dashboards/me/daily` from Phase 10) | ✅ verified live, 🚧 not yet an automated e2e test |
+| All 15 Admin pages load with zero console/page errors, real Team Leader login | Playwright against pre-installed Chromium, this session | ✅ verified live (screenshotted every page) |
+| All 7 new Agent pages load with zero console/page errors, real Agent login | same | ✅ verified live |
+| Full interactive flow: Start Session → Generate Cash Lead → Call Customer → select disposition → Save → UI reflects "no active lead" afterward | Playwright, real clicks (not just backend curl), this session | ✅ verified live, zero console/page errors through the whole sequence |
+| `POST /leads/generate` without an active session correctly 404s ("Start a session first") | manual, this session | ✅ confirmed as correct existing Phase 6 behavior, not a defect (initially worth double-checking since it looked like a new-page bug) |
+| Login rate limit (10/60s) still enforced under repeated verification-script logins | manual, this session | ✅ confirmed working as designed - noted as an easy-to-hit trap for future verification scripts, not a product bug (see IMPLEMENTATION_STATUS.md for the workaround used) |
+| `next build` (production build) succeeds, all 24 routes prerender | ✅ verified |
+| Full API suite (81 tests across 12 suites) passing after all additions | ✅ verified |
+
+Not yet built:
+
+- Automated test coverage for the new pages themselves (same gap as Phase
+  11 - verification was live/scripted Playwright, not a committed suite).
+- "Lead Reports" and "Sessions & Breaks" are not yet visually distinct from
+  their sibling nav items ("Leads Distributor" and "Live Shift Monitor"
+  respectively) - flagged as a known, accepted duplication in
+  `IMPLEMENTATION_STATUS.md`, not silently hidden.
+- Settings page client-side value validation (e.g. enforcing
+  `dashboardBreakAllowanceMinutes` is numeric before submit).
 
 ## Security, performance, and release readiness (Phase 12)
 
