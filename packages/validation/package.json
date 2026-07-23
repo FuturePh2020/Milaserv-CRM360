@@ -10,6 +10,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "xlsx": "^0.18.5",
     "zod": "^3.23.8"
   },
   "devDependencies": {

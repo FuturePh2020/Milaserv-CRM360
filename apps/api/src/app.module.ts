@@ -9,6 +9,7 @@ import { AuthModule } from "./auth/auth.module";
 import { UsersModule } from "./users/users.module";
 import { TeamsModule } from "./teams/teams.module";
 import { ShiftsModule } from "./shifts/shifts.module";
+import { ImportsModule } from "./imports/imports.module";
 import { AuditModule } from "./audit/audit.module";
 import { JwtAuthGuard } from "./common/guards/jwt-auth.guard";
 import { RolesGuard } from "./common/guards/roles.guard";
@@ -23,6 +24,7 @@ import { RolesGuard } from "./common/guards/roles.guard";
     UsersModule,
     TeamsModule,
     ShiftsModule,
+    ImportsModule,
   ],
   controllers: [AppController],
   providers: [

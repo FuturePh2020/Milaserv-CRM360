@@ -39,11 +39,25 @@ current status.
 | Refill date calculation | same | ✅ |
 | Refill period outside 26–80 rejected | same | ✅ |
 
-## Import framework (Phase 2/3) — not yet built
+## Import framework (Phase 2)
 
-- Insurance grouping: multiple medication rows → one lead, items separate, long ids exact (against `docs/samples/med_gulf_sample.xlsx`). 🚧
-- Cash grouping: repeated phone/date/branch rows → one lead with multiple items; ambiguous date format requires explicit selection (against `docs/samples/cash_leads.xlsx`). 🚧
-- Idempotent/retry-safe import; duplicate detection; error file. 🚧
+| Test | Location | Status |
+|---|---|---|
+| Spreadsheet row parsing preserves exact source row numbers across blank rows | `packages/validation/src/sheet.test.ts` | ✅ (caught a real SheetJS default-behavior bug live, fixed with `blankrows: true`) |
+| Required-column detection matches the real Cash/Insurance sample headers | `packages/validation/src/import-columns.test.ts` | ✅ |
+| Empty-required-field detection | same | ✅ |
+| Upload/create-batch restricted to Team Leader | `apps/api/src/imports/imports.service.spec.ts` | ✅ |
+| Preview/confirm reject batches in the wrong status | same | ✅ |
+| End-to-end: upload real `cash_leads.xlsx` → preview → confirm → worker → `COMPLETED_WITH_ERRORS`, with row-accurate error reporting | manual, this session (see `docs/implementation/IMPLEMENTATION_STATUS.md`) | ✅ verified live, 🚧 not yet an automated integration test against a real DB |
+| End-to-end: upload real `med_gulf_sample.xlsx` → preview → all rows valid | same | ✅ verified live, 🚧 not automated |
+| Re-uploading an identical file is flagged `alreadyUploadedBefore` | same | ✅ verified live, 🚧 not automated |
+| In-file duplicate row detection | same (rows 23–28 of `cash_leads.xlsx`, which are genuinely blank duplicates) | ✅ verified live, 🚧 not automated |
+
+Not yet built (Phase 3/9, per `docs/implementation/IMPLEMENTATION_STATUS.md`):
+
+- Insurance grouping: multiple medication rows → one lead, items separate, long ids exact. 🚧
+- Cash grouping: repeated phone/date/branch rows → one lead with multiple items; ambiguous date format requires explicit selection. 🚧
+- Row/business-key-level idempotency (as opposed to whole-file-checksum idempotency, which is done). 🚧
 
 ## Lead distribution (Phase 6) — not yet built
 

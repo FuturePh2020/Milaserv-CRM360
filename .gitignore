@@ -14,3 +14,4 @@ apps/activity-agent/bin/
 apps/activity-agent/obj/
 packages/database/generated/
 *.tsbuildinfo
+storage/
