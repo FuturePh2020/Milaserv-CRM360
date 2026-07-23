@@ -181,6 +181,8 @@ model User {
   leadDispositions    LeadDisposition[]
   auditLogs           AuditLog[]
 
+  // Backs the Agent Performance report's per-team agent listing.
+  @@index([role, teamId])
   @@map("users")
 }
 
@@ -317,6 +319,9 @@ model WorkSession {
   // Guarantees at most one open (non-ended) session per user.
   @@unique([userId, activeOwnerMarker])
   @@index([userId, startedAt])
+  // Backs the admin "active sessions" / dashboard-overview queries (spec
+  // 18.1), which filter by team + open status and are polled every 15s.
+  @@index([teamId, status])
   @@map("work_sessions")
 }
 
@@ -604,6 +609,9 @@ model LeadAssignment {
   @@unique([activeAgentMarker])
   @@index([leadId, assignedAt])
   @@index([agentId, assignedAt])
+  // Backs dashboard team-scoping (spec 18.2/18.3): filtering/joining
+  // contacted-leads and CDR-verified-calls counts by team.
+  @@index([teamId, assignedAt])
   @@map("lead_assignments")
 }
 
@@ -660,6 +668,8 @@ model LeadOrderReference {
   createdById        String   @map("created_by_id")
   createdAt          DateTime @default(now()) @map("created_at")
 
+  // Backs the Agent Performance report's per-agent "orders created" count.
+  @@index([createdById])
   @@map("lead_order_references")
 }
 

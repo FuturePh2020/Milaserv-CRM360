@@ -1,5 +1,6 @@
 import { Body, Controller, Get, Param, Patch, UseGuards } from "@nestjs/common";
 import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
+import { Throttle } from "@nestjs/throttler";
 import { UserRole } from "@milaserv/database";
 import { Roles } from "../common/decorators/roles.decorator";
 import { CurrentUser } from "../common/decorators/current-user.decorator";
@@ -21,6 +22,7 @@ export class ExtensionMappingsController {
     return this.extensionMappingsService.list();
   }
 
+  @Throttle({ default: { limit: 30, ttl: 60000 } })
   @Roles(UserRole.TEAM_LEADER)
   @Patch(":extension")
   assign(

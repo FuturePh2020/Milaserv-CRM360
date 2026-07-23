@@ -58,7 +58,9 @@ export class ImportsService {
     const allowedMimeTypes = this.configService.get<string[]>("uploads.allowedMimeTypes") ?? [];
     const maxSizeBytes = (this.configService.get<number>("uploads.maxFileSizeMb") ?? 50) * 1024 * 1024;
 
-    if (allowedMimeTypes.length > 0 && !allowedMimeTypes.includes(file.mimetype)) {
+    // Fail closed: an empty allow-list (misconfiguration) must reject every
+    // upload, never silently accept everything.
+    if (!allowedMimeTypes.includes(file.mimetype)) {
       throw new BadRequestException(`Unsupported file type: ${file.mimetype}`);
     }
     if (file.size > maxSizeBytes) {

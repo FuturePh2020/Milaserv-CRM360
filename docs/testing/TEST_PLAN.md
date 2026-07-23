@@ -238,6 +238,26 @@ Not yet built:
   fallback only; the server-side SSE endpoint from Phase 10 is unused by
   the UI so far).
 
+## Security, performance, and release readiness (Phase 12)
+
+Full findings in `docs/architecture/SECURITY.md` (rewritten this phase
+against the spec's 15-point checklist) and
+`docs/implementation/IMPLEMENTATION_STATUS.md`. Summary:
+
+| Test | Status |
+|---|---|
+| Security checklist (spec §23, all 15 items) reviewed against actual current code, not a stale snapshot | ✅ done - `docs/architecture/SECURITY.md`, each item SATISFIED/PARTIAL with file-level evidence |
+| Rate limiting on import/CDR/extension-mapping endpoints | ✅ **caught a real gap live**: none of these had a route-specific limit beyond the generous global default; fixed (20-30/min added to each) |
+| Upload MIME/size validation fails closed, not open | ✅ **caught a real gap live**: an empty allow-list silently accepted every file type; fixed. Multer's hardcoded 100MB ceiling disagreed with the configurable service-side limit; fixed to read the same env var |
+| Database indexes exist for every field the spec calls out (active-owner/status/type/batch, plus whatever Phase 10's dashboards actually query) | ✅ **caught 4 real gaps live**: `WorkSession(teamId,status)`, `LeadAssignment(teamId)`, `LeadOrderReference(createdById)`, `User(role,teamId)` were all missing, causing sequential scans on queries polled every 15s. Fixed via migration `20260723194146_phase12_dashboard_index_review`, confirmed live via `\di` |
+| Generate Lead concurrency still holds after the index migration | ✅ **verified live**: 9 concurrent requests, fresh synthetic Agents, 9/9 succeeded with 9 distinct leads, zero duplicates |
+| Data-hygiene incident during the above: two leftover `Lead` rows had a dangling `LeadAssignment.activeLeadMarker` after being reset to `AVAILABLE` by an earlier cleanup script that skipped releasing the assignment | ✅ **root-caused rigorously** (isolated Prisma-only reproduction bypassing NestJS/HTTP; cross-checked against 5 truly-concurrent raw `psql` sessions proving Postgres/SKIP LOCKED itself was never the problem) and repaired. The actual finding is reassuring, not alarming: every claim attempt against the two poisoned rows correctly got a clean `409` from the unique-constraint safety net - no double-assignment ever occurred |
+| Docker build | 🚧 `docker compose config` (syntax/env validation) passes; `docker info` confirms the daemon cannot start in this sandbox (a capability/ulimit restriction, not just registry access as earlier phases assumed) - `docker compose build`/`up` remain unverified here |
+| Full monorepo build (api/worker/web) | ✅ verified clean end-to-end this phase |
+| UAT / staging deployment / backup-restore drill | 🚧 not run - these require a real staging deployment and a human tester, which this session cannot provide. `docs/release/UAT.md`/`ROLLBACK.md` remain accurate templates, unchanged |
+| Load testing at the spec's full "200+ users" target | 🚧 not performed - only smoke-tested at 9-55 concurrent requests (this session's practical ceiling for interactively seeding/cleaning up synthetic accounts) |
+| Team-scoping for imports/CDR/extension-mappings | 🚧 **documented gap, not fixed** - any Team Leader/Shift Supervisor can view any import batch/CDR report regardless of team, since `LeadImportBatch`/`CdrImport` have no `teamId` in the schema. Flagged as a product decision, not silently left unaddressed |
+
 ## Idle break (Phase 5)
 
 | Test | Location | Status |

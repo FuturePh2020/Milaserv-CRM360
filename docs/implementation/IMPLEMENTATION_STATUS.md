@@ -1,7 +1,7 @@
 # Implementation Status
 
-Last updated: 2026-07-23, end of Phase 11 (Phases 0-10 done in earlier passes
-this same session).
+Last updated: 2026-07-23, end of Phase 12 - all 13 planned phases (0-12)
+complete in this session.
 
 This file exists so nobody has to guess what's real. If something isn't
 listed as done-and-verified below, assume it does not work yet.
@@ -829,10 +829,124 @@ Known gaps, flagged rather than silently assumed complete:
 - Color contrast was eyeballed against the spec's exact hex values, not
   run through an automated contrast-ratio checker (e.g. axe-core).
 
-## Phase 12
+## Phase 12 — Security, performance, and release readiness
 
-**Not started.** The security/performance/release-readiness checklist is
-outstanding.
+**Status: Security review complete and re-documented (`docs/architecture/SECURITY.md`
+fully rewritten against the spec's 15-point checklist, not just re-stamped);
+three concrete security/robustness fixes shipped; a database index review
+found and fixed four real missing indexes from Phase 10's dashboard
+queries; the atomic lead-claiming path was re-verified live after the
+migration, which surfaced and fixed a genuine test-data hygiene bug (not
+an application bug - see below). Docker build/deploy could not be executed
+in this sandbox (the daemon itself won't start here, not just registry
+access); `docker compose config` (pure syntax/interpolation validation, no
+daemon needed) passes. The release docs (UAT/rollback/runbook/pilot plan)
+were written as thorough templates back in Phase 0 and remain accurate
+without changes - they still correctly say "not yet run/exercised," which
+is honest: this phase did not deploy to a real staging environment or run
+human UAT.**
+
+- **Security review** (`docs/architecture/SECURITY.md`, full rewrite): every
+  item in spec §23 assessed against the actual current code (not the
+  Phase-1 snapshot the doc previously described), each with a SATISFIED/
+  PARTIAL verdict and specific file references. Headline findings:
+  - Real, fixed this phase: import/CDR/extension-mapping endpoints had no
+    rate limit beyond the generous global default; the upload MIME
+    allow-list silently accepted everything if misconfigured to be empty
+    (fail-open); Multer's hardcoded 100MB upload ceiling could disagree
+    with the configurable `UPLOAD_MAX_FILE_SIZE_MB` service-side check.
+  - Real, documented but **not** fixed this phase (a data-model/product
+    decision, not a quick patch): `ImportsService`/`CdrService`/
+    `ExtensionMappingsService` have no team scoping at all - any Team
+    Leader or Shift Supervisor can view/confirm/export any import batch or
+    CDR report regardless of team, because `LeadImportBatch`/`CdrImport`
+    have no `teamId` in the schema (imports are a shared operation, not
+    inherently per-team). `TeamScopeGuard` is still unused dead code
+    (flagged since Phase 1).
+  - Confirmed non-issues: raw UUID public IDs (a deliberate, consistent
+    convention, not a bypassed safer scheme); medical/medication data is
+    never logged; the device-heartbeat auth path is sound.
+- **Database index review** (spec §20's "indexed active-owner/status/type/
+  batch fields"): the Phase 10 dashboard queries (polled every 15s from an
+  admin's Overview page) filter/join on `WorkSession.teamId`+`status`,
+  `LeadAssignment.teamId`, `LeadOrderReference.createdById`, and
+  `User.role`+`teamId` with **no supporting index on any of them** - every
+  call was a sequential scan. Fixed with migration
+  `20260723194146_phase12_dashboard_index_review` (purely additive, four
+  new indexes, applied without downtime) and confirmed live: the indexes
+  exist in the running database (`\di` output cross-checked against the
+  migration).
+- **Concurrency re-verification after the migration** (spec §24's
+  distribution-concurrency requirement, re-run because indexes were added
+  to tables in the Generate Lead code path's vicinity): a focused
+  regression smoke test (9 concurrent Generate Lead calls, fresh
+  synthetic Agents, real HTTP requests) confirmed **9/9 succeeded, 9
+  distinct leads, zero duplicates** - the atomic claim path is unaffected
+  by the new indexes, as expected (they're on unrelated columns and
+  purely additive).
+  - **A genuine bug was found and fixed while getting this smoke test
+    running - but it was in the *test data*, not the application**: two
+    `Lead` rows left over from this session's earlier live testing had
+    been reset to `status = AVAILABLE` by a cleanup script that forgot to
+    also release the corresponding `LeadAssignment.activeLeadMarker`,
+    leaving a dangling claim on a lead the system otherwise considered
+    free. This was root-caused rigorously, not guessed: reproduced with
+    an isolated Prisma-only script bypassing NestJS/HTTP entirely, cross-
+    checked against 5 truly concurrent raw `psql` sessions (which
+    confirmed Postgres's `SELECT ... FOR UPDATE SKIP LOCKED` behaves
+    correctly), and finally pinned down via direct SQL joining
+    `LeadAssignment.active_lead_marker IS NOT NULL` against a `Lead.status`
+    that implied no active claim. The important finding **is** the
+    absence of a bug: every attempt to claim one of the two poisoned rows
+    correctly failed with a clean `409` (the unique-constraint safety net
+    working exactly as designed) rather than silently double-assigning a
+    lead - i.e., this incident is live proof that the defense-in-depth
+    design (row lock + separate unique constraint) holds up even when the
+    "shouldn't happen" case (inconsistent leftover data) actually happens.
+    The two rows were repaired (assignment properly released) and this is
+    now documented in `SECURITY.md` as a standing rule: never reset
+    `Lead.status` directly without also releasing the `LeadAssignment`.
+- **Docker / build verification**: `docker compose config` succeeds
+  (validates `docker-compose.yml` syntax and `.env` variable
+  interpolation) - stronger verification than Phase 0 managed, since the
+  `docker` CLI is present in this sandbox. However `docker info`/`service
+  docker start` confirm the daemon itself cannot start here (a
+  `ulimit`/capability restriction in the sandbox, not just the
+  previously-assumed registry block) - `docker compose build`/`up` remain
+  unverified in this environment; re-verify on a host with a working
+  Docker daemon before relying on it for staging/production.
+  Full monorepo build re-confirmed clean end-to-end this phase:
+  `apps/api` (`tsc`, `nest build`), `apps/worker` (`tsc`), `apps/web`
+  (`tsc`, `next build` - all 6 routes prerender), `packages/validation`
+  (56/56 tests), `apps/api` (72/72 tests).
+- **Release documentation** (`docs/release/{UAT,ROLLBACK,OPERATIONS_RUNBOOK,PILOT_MONITORING}.md`):
+  reviewed against the current state of the app; all four remain accurate
+  as forward-looking templates written in Phase 0 and needed no
+  correction. They correctly continue to say "not yet run" - this phase
+  did not stand up a real staging deployment or run a human UAT pass, and
+  claiming otherwise would violate this project's honesty-over-completeness
+  rule. `docs/deployment/PRODUCTION.md`'s Definition-of-Done gates
+  (typecheck/lint/test/build, concurrency tests, security review, reviewed
+  migrations) all hold as of this update, **except** `pnpm lint`, which
+  still cannot run repo-wide (see below - a pre-existing gap, not
+  introduced this phase).
+
+Known gaps, flagged rather than silently assumed complete:
+
+- `eslint` still cannot run (`eslint.config.js` migration not done - flagged
+  since Phase 9; unchanged this phase).
+- No staging deployment has actually happened; `docs/release/UAT.md`'s
+  checklist requires a real human tester on real staging, which this
+  session cannot provide.
+- No backup-restore drill has been performed (`docs/release/ROLLBACK.md`
+  flags this explicitly).
+- Team-scoping gap for imports/CDR/extension-mappings (see Security review
+  above) remains open pending a product decision.
+- Load testing beyond the ~9-55 concurrent-request smoke tests in this
+  session (spec's "at least 200 users" target) has not been performed at
+  full scale - would require either a load-testing tool run against a
+  long-lived deployment or many more synthetic accounts than were
+  practical to seed/clean up interactively in this session.
 
 ## Quality gates, as of this update
 
