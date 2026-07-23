@@ -32,7 +32,10 @@ async function bootstrap() {
   const document = SwaggerModule.createDocument(app, swaggerConfig);
   SwaggerModule.setup("docs", app, document);
 
-  const port = process.env.API_PORT ? Number(process.env.API_PORT) : 4000;
+  // Render (and most PaaS hosts) assign the listen port via PORT, not a
+  // custom var - check it first, fall back to the existing API_PORT
+  // convention for local/Docker use, then the plain default.
+  const port = process.env.PORT ? Number(process.env.PORT) : process.env.API_PORT ? Number(process.env.API_PORT) : 4000;
   await app.listen(port);
   // eslint-disable-next-line no-console
   console.log(`Milaserv CRM360 API listening on port ${port}`);

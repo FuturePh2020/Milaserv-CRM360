@@ -31,6 +31,9 @@ ARG NEXT_PUBLIC_DEMO_MODE=false
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 ENV NEXT_PUBLIC_DEMO_MODE=${NEXT_PUBLIC_DEMO_MODE}
 ENV DATABASE_URL="postgresql://user:pass@localhost:5432/db?schema=public"
+# Only the Docker build wants Next.js standalone output - see
+# next.config.mjs for why Vercel must not get this.
+ENV BUILD_STANDALONE=true
 RUN pnpm --filter @milaserv/database build
 RUN pnpm --filter @milaserv/contracts build
 RUN pnpm --filter @milaserv/validation build

@@ -42,6 +42,7 @@ export class ImportsService {
       port: this.configService.get<number>("redis.port"),
       password: this.configService.get<string>("redis.password"),
       maxRetriesPerRequest: null,
+      ...(this.configService.get<boolean>("redis.tls") ? { tls: {} } : {}),
     });
     this.queue = new Queue(QUEUE_NAME, { connection });
   }
