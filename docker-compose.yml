@@ -1,0 +1,90 @@
+name: milaserv-crm360
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-milaserv}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me}
+      POSTGRES_DB: ${POSTGRES_DB:-milaserv_crm360}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - milaserv_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-milaserv} -d ${POSTGRES_DB:-milaserv_crm360}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - milaserv_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # .env is written for host-based local dev (Postgres/Redis on
+      # localhost) - inside this container "localhost" would mean the api
+      # container itself, not the sibling postgres/redis containers, so
+      # these must be overridden to the Compose service names regardless
+      # of whatever .env says. `environment:` takes precedence over
+      # `env_file:` for the same key.
+      DATABASE_URL: postgresql://${POSTGRES_USER:-milaserv}:${POSTGRES_PASSWORD:-change_me}@postgres:5432/${POSTGRES_DB:-milaserv_crm360}?schema=public&connection_limit=60&pool_timeout=20
+      REDIS_HOST: redis
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "${API_PORT:-4000}:4000"
+    volumes:
+      - milaserv_uploads:/app/storage/uploads
+
+  worker:
+    build:
+      context: .
+      dockerfile: apps/worker/Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-milaserv}:${POSTGRES_PASSWORD:-change_me}@postgres:5432/${POSTGRES_DB:-milaserv_crm360}?schema=public&connection_limit=60&pool_timeout=20
+      REDIS_HOST: redis
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - milaserv_uploads:/app/storage/uploads
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      - api
+    ports:
+      - "3000:3000"
+
+volumes:
+  milaserv_postgres_data:
+  milaserv_redis_data:
+  milaserv_uploads:

@@ -1,0 +1,37 @@
+{
+  "name": "milaserv-crm360",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Milaserv CRM360 - Telesales Leads Distributor MVP",
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "pnpm@10.33.0",
+  "scripts": {
+    "build": "pnpm -r --filter=./packages/** build && pnpm -r --filter=./apps/** build",
+    "dev:api": "pnpm --filter @milaserv/api dev",
+    "dev:web": "pnpm --filter @milaserv/web dev",
+    "dev:worker": "pnpm --filter @milaserv/worker dev",
+    "lint": "pnpm -r lint",
+    "test": "pnpm -r test",
+    "typecheck": "pnpm -r typecheck",
+    "prisma:generate": "pnpm --filter @milaserv/database prisma:generate",
+    "prisma:migrate": "pnpm --filter @milaserv/database prisma:migrate",
+    "prisma:seed": "pnpm --filter @milaserv/database prisma:seed"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@nestjs/core",
+      "@prisma/client",
+      "@prisma/engines",
+      "argon2",
+      "esbuild",
+      "msgpackr-extract",
+      "prisma"
+    ]
+  }
+}

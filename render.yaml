@@ -1,0 +1,106 @@
+# Render Blueprint for the free-demo deployment of Milaserv CRM360's API.
+# See docs/deployment/FREE_PUBLIC_DEMO_CLOUD.md for the full walkthrough
+# (Supabase Postgres, Upstash Redis TLS, Vercel for the Next.js web app).
+#
+# Render's free tier has no separate free background-worker service, so the
+# BullMQ worker runs embedded in this same web service via
+# scripts/render-start.sh (worker backgrounded, API foregrounded so it owns
+# the health check / $PORT binding). This is an explicit demo-tier
+# trade-off - see that script's comments.
+#
+# Root Directory for this service in the Render dashboard: the repository
+# root (leave blank / ".") - a pnpm workspace needs the whole monorepo
+# present to resolve internal `workspace:*` packages
+# (@milaserv/database, @milaserv/contracts, @milaserv/validation).
+
+services:
+  - type: web
+    name: milaserv-crm360-api
+    env: node
+    plan: free
+    region: oregon
+    branch: main
+    buildCommand: >-
+      corepack enable &&
+      corepack prepare pnpm@10.33.0 --activate &&
+      pnpm install --frozen-lockfile &&
+      pnpm --filter @milaserv/database exec prisma generate &&
+      pnpm --filter @milaserv/database exec prisma migrate deploy &&
+      pnpm --filter @milaserv/contracts build &&
+      pnpm --filter @milaserv/validation build &&
+      pnpm --filter @milaserv/api build &&
+      pnpm --filter @milaserv/worker build
+    startCommand: bash scripts/render-start.sh
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # ---- Supabase Postgres (set for real in the Render dashboard - see
+      # docs/deployment/FREE_PUBLIC_DEMO_CLOUD.md for where to find this in
+      # your Supabase project settings). `sync: false` means Render prompts
+      # for the value at first deploy and never stores/displays it in this
+      # file. ----
+      - key: DATABASE_URL
+        sync: false
+      # ---- Upstash Redis (TLS required) ----
+      - key: REDIS_HOST
+        sync: false
+      - key: REDIS_PORT
+        value: "6379"
+      - key: REDIS_PASSWORD
+        sync: false
+      - key: REDIS_TLS
+        value: "true"
+      # ---- Auth secrets - Render can generate these for you (never reuse
+      # a local-dev secret in a public demo) ----
+      - key: JWT_ACCESS_SECRET
+        generateValue: true
+      - key: JWT_ACCESS_TTL
+        value: 15m
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_TTL
+        value: 7d
+      - key: AUTH_LOCKOUT_MAX_ATTEMPTS
+        value: "5"
+      - key: AUTH_LOCKOUT_WINDOW_MINUTES
+        value: "15"
+      - key: AUTH_LOCKOUT_DURATION_MINUTES
+        value: "15"
+      # ---- CORS - set to the exact Vercel deployment URL(s), comma-
+      # separated for more than one (e.g. production + a preview URL) ----
+      - key: CORS_ORIGIN
+        sync: false
+      # ---- Seed (first deploy only - see FREE_PUBLIC_DEMO_CLOUD.md) ----
+      - key: SEED_TEAM_LEADER_EMAIL
+        sync: false
+      - key: SEED_TEAM_LEADER_PASSWORD
+        sync: false
+      - key: SEED_TEAM_LEADER_FULL_NAME
+        value: Demo Admin
+      # ---- Uploads - Render's free-tier disk is ephemeral (wiped on every
+      # deploy/restart); Supabase Storage is the real target for anything
+      # that must survive a restart. This app's current upload code writes
+      # to local disk only - wiring an actual Supabase Storage client is a
+      # real follow-up, not done as part of this config-only pass (see
+      # docs/deployment/FREE_PUBLIC_DEMO_CLOUD.md's Known Limitations). Set
+      # this to Render's writable temp path so uploads at least work for
+      # the lifetime of one running instance. ----
+      - key: UPLOAD_STORAGE_PATH
+        value: /tmp/uploads
+      - key: UPLOAD_MAX_FILE_SIZE_MB
+        value: "50"
+      - key: UPLOAD_ALLOWED_MIME_TYPES
+        value: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv
+      - key: CDR_DEFAULT_SOURCE_TIMEZONE
+        value: Asia/Riyadh
+      - key: DASHBOARD_BREAK_ALLOWANCE_MINUTES
+        value: "60"
+      - key: DASHBOARD_OVERVIEW_CACHE_TTL_SECONDS
+        value: "10"
+      - key: IDLE_BREAK_THRESHOLD_SECONDS
+        value: "300"
+      - key: APP_TIMEZONE
+        value: Africa/Cairo
+      - key: WORKER_CONCURRENCY
+        value: "5"

@@ -1,0 +1,7 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "nextjs",
+  "buildCommand": "cd ../.. && corepack enable && corepack prepare pnpm@10.33.0 --activate && pnpm install --frozen-lockfile && pnpm --filter @milaserv/contracts build && pnpm --filter @milaserv/web build",
+  "installCommand": "echo 'install runs inside buildCommand - the workspace root must be installed before building, not just apps/web'",
+  "outputDirectory": ".next"
+}

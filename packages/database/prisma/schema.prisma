@@ -1,0 +1,836 @@
+// Milaserv CRM360 - Prisma schema
+// Storage timezone: UTC (all DateTime fields). Display timezone: Africa/Cairo (application layer).
+// Naming: snake_case columns via @map, camelCase in the Prisma client.
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ------------------------------------------------------------------
+// Enums
+// ------------------------------------------------------------------
+
+enum UserRole {
+  TEAM_LEADER
+  SHIFT_SUPERVISOR
+  AGENT
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+enum LeadType {
+  CASH
+  INSURANCE
+}
+
+enum SessionStatus {
+  ACTIVE
+  ON_MANUAL_BREAK
+  ON_IDLE_BREAK
+  ENDED
+  FORCE_CLOSED
+}
+
+enum BreakType {
+  MANUAL
+  IDLE
+}
+
+enum AttendanceStatus {
+  PRESENT
+  WORKED_NO_BREAK
+  VACATION
+  ABSENT
+  DAY_OFF
+  PARTIAL_SESSION
+  SESSION_NOT_CLOSED
+  FORCE_CLOSED
+}
+
+enum LeadStatus {
+  IMPORTED
+  AVAILABLE
+  PENDING_CALL
+  CUSTOMER_CONTACTED
+  DISPOSITION_REQUIRED
+  CALLBACK_ELIGIBLE
+  FOLLOW_UP_SCHEDULED
+  CONVERTED_TO_ORDER
+  COMPLETED
+  INVALID_NUMBER
+  ARCHIVED
+}
+
+enum AssignmentSource {
+  GENERATE_LEAD
+  TAKE_LEAD
+  ADMIN_ASSIGNMENT
+  ADMIN_REASSIGNMENT
+}
+
+enum DispositionType {
+  ALREADY_DISPENSED
+  ACUTE_MEDICATION_CASE
+  WRONG_NUMBER
+  NO_ANSWER_BUSY
+  ORDER_CREATED
+  ANSWERED_NO_ORDER
+  NOT_ACTIVE_MEMBER
+  RESCHEDULE_FOLLOW_UP
+  UNCOVERED_CUSTOMER
+  LABORATORY_CASE
+}
+
+enum FollowUpPeriod {
+  MORNING
+  EVENING
+}
+
+enum ImportSourceType {
+  CASH
+  INSURANCE
+  CDR
+}
+
+enum ImportStatus {
+  UPLOADED
+  VALIDATING
+  PREVIEW_READY
+  QUEUED
+  PROCESSING
+  COMPLETED
+  COMPLETED_WITH_ERRORS
+  FAILED
+}
+
+enum LegacyAgentPreservationMode {
+  DO_NOT_PRESERVE
+  PRESERVE_WHEN_MAPPED
+}
+
+enum CallDirection {
+  INBOUND
+  OUTBOUND
+  // Agent-to-agent calls (real Yeastar "Communication Type" value). Never
+  // relevant to lead matching - staged for audit completeness, never
+  // promoted to CdrRecord/CallMatch.
+  INTERNAL
+}
+
+enum CallProviderStatus {
+  ANSWERED
+  NO_ANSWER
+  BUSY
+  FAILED_OR_UNKNOWN
+}
+
+enum CallMatchStatus {
+  MATCHED
+  NOT_MATCHED
+  AMBIGUOUS
+  AGENT_MISMATCH
+  OUTSIDE_ASSIGNMENT_WINDOW
+  INVALID_PHONE
+  UNMAPPED_EXTENSION
+}
+
+enum AuditActorType {
+  USER
+  SYSTEM
+  DEVICE
+}
+
+// ------------------------------------------------------------------
+// User / Role / Scope
+// ------------------------------------------------------------------
+
+model User {
+  id                      String     @id @default(uuid())
+  email                   String     @unique
+  passwordHash            String     @map("password_hash")
+  fullName                String     @map("full_name")
+  role                    UserRole
+  status                  UserStatus @default(ACTIVE)
+  teamId                  String?    @map("team_id")
+  team                    Team?      @relation(fields: [teamId], references: [id])
+  failedLoginCount        Int        @default(0) @map("failed_login_count")
+  lockedUntil             DateTime?  @map("locked_until")
+  lastLoginAt             DateTime?  @map("last_login_at")
+  mustChangePassword      Boolean    @default(false) @map("must_change_password")
+  // Admin-controlled per-Agent toggle for the browser-based activity
+  // tracker (CLAUDE.md rule 3) - disabling it means idle breaks are never
+  // auto-created for this user, only manual Start/End Break.
+  activityTrackingEnabled Boolean    @default(true) @map("activity_tracking_enabled")
+  createdAt               DateTime   @default(now()) @map("created_at")
+  updatedAt               DateTime   @updatedAt @map("updated_at")
+
+  refreshTokens      RefreshToken[]
+  leadPermissions    UserLeadPermission[]
+  extensionMappings  ExtensionMapping[]
+  activityHeartbeats ActivityHeartbeat[]
+  workSessions       WorkSession[]
+  attendanceDays     AttendanceDay[]
+  supervisedShifts   Shift[]              @relation("ShiftSupervisor")
+  leadAssignments    LeadAssignment[]     @relation("AssignmentAgent")
+  leadDispositions   LeadDisposition[]
+  auditLogs          AuditLog[]
+
+  // Backs the Agent Performance report's per-team agent listing.
+  @@index([role, teamId])
+  @@map("users")
+}
+
+model RefreshToken {
+  id         String    @id @default(uuid())
+  userId     String    @map("user_id")
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash  String    @unique @map("token_hash")
+  deviceInfo String?   @map("device_info")
+  ipAddress  String?   @map("ip_address")
+  expiresAt  DateTime  @map("expires_at")
+  revokedAt  DateTime? @map("revoked_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+model Team {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  users  User[]
+  shifts Shift[]
+
+  @@map("teams")
+}
+
+model Shift {
+  id             String   @id @default(uuid())
+  name           String
+  teamId         String   @map("team_id")
+  team           Team     @relation(fields: [teamId], references: [id])
+  supervisorId   String?  @map("supervisor_id")
+  supervisor     User?    @relation("ShiftSupervisor", fields: [supervisorId], references: [id])
+  startTimeLocal String   @map("start_time_local") // HH:mm in Africa/Cairo
+  endTimeLocal   String   @map("end_time_local")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  schedules ShiftSchedule[]
+
+  @@index([teamId])
+  @@map("shifts")
+}
+
+model ShiftSchedule {
+  id        String   @id @default(uuid())
+  shiftId   String   @map("shift_id")
+  shift     Shift    @relation(fields: [shiftId], references: [id])
+  userId    String   @map("user_id")
+  dayOfWeek Int      @map("day_of_week") // 0=Sunday .. 6=Saturday
+  isDayOff  Boolean  @default(false) @map("is_day_off")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([shiftId, userId, dayOfWeek])
+  @@map("shift_schedules")
+}
+
+model UserLeadPermission {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  leadType  LeadType @map("lead_type")
+  // "ALL" sentinel (not null) so the compound unique constraint below actually
+  // deduplicates - Postgres treats every NULL as distinct, which would let
+  // repeated grants with no partner scope silently create duplicate rows.
+  partner   String   @default("ALL") // e.g. "Med Gulf", a cash branch group, or "ALL" for every partner of this type
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([userId, leadType, partner])
+  @@map("user_lead_permissions")
+}
+
+model ExtensionMapping {
+  id          String   @id @default(uuid())
+  extension   String   @unique
+  userId      String?  @map("user_id")
+  user        User?    @relation(fields: [userId], references: [id])
+  displayName String?  @map("display_name")
+  isSystem    Boolean  @default(false) @map("is_system") // IVR / Queue / non-human endpoints
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("extension_mappings")
+}
+
+// ------------------------------------------------------------------
+// Session / Break / Attendance
+// ------------------------------------------------------------------
+
+model WorkSession {
+  id                String        @id @default(uuid())
+  userId            String        @map("user_id")
+  user              User          @relation(fields: [userId], references: [id])
+  teamId            String?       @map("team_id")
+  shiftId           String?       @map("shift_id")
+  status            SessionStatus @default(ACTIVE)
+  startedAt         DateTime      @default(now()) @map("started_at")
+  endedAt           DateTime?     @map("ended_at")
+  lastActivityAt    DateTime      @default(now()) @map("last_activity_at")
+  totalWorkSeconds  Int           @default(0) @map("total_work_seconds")
+  totalBreakSeconds Int           @default(0) @map("total_break_seconds")
+  deviceId          String?       @map("device_id")
+  forceClosedBy     String?       @map("force_closed_by")
+  forceCloseReason  String?       @map("force_close_reason")
+  activeOwnerMarker Boolean?      @default(true) @map("active_owner_marker")
+  createdAt         DateTime      @default(now()) @map("created_at")
+  updatedAt         DateTime      @updatedAt @map("updated_at")
+
+  breaks     BreakEvent[]
+  heartbeats ActivityHeartbeat[]
+
+  // Guarantees at most one open (non-ended) session per user.
+  @@unique([userId, activeOwnerMarker])
+  @@index([userId, startedAt])
+  // Backs the admin "active sessions" / dashboard-overview queries (spec
+  // 18.1), which filter by team + open status and are polled every 15s.
+  @@index([teamId, status])
+  @@map("work_sessions")
+}
+
+model BreakEvent {
+  id              String      @id @default(uuid())
+  sessionId       String      @map("session_id")
+  session         WorkSession @relation(fields: [sessionId], references: [id])
+  userId          String      @map("user_id")
+  type            BreakType
+  startedAt       DateTime    @map("started_at")
+  endedAt         DateTime?   @map("ended_at")
+  durationSeconds Int?        @map("duration_seconds")
+  createdAt       DateTime    @default(now()) @map("created_at")
+
+  @@index([userId, startedAt])
+  @@index([sessionId])
+  @@map("break_events")
+}
+
+model ActivityHeartbeat {
+  id                  String       @id @default(uuid())
+  userId              String       @map("user_id")
+  user                User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sessionId           String?      @map("session_id")
+  session             WorkSession? @relation(fields: [sessionId], references: [id])
+  lastActivityAt      DateTime     @map("last_activity_at")
+  idleDurationSeconds Int          @map("idle_duration_seconds")
+  heartbeatAt         DateTime     @default(now()) @map("heartbeat_at")
+
+  @@index([userId, heartbeatAt])
+  @@index([sessionId])
+  @@map("activity_heartbeats")
+}
+
+model AttendanceDay {
+  id                 String           @id @default(uuid())
+  userId             String           @map("user_id")
+  user               User             @relation(fields: [userId], references: [id])
+  date               DateTime         @db.Date // calendar day in Africa/Cairo
+  status             AttendanceStatus
+  totalWorkSeconds   Int              @default(0) @map("total_work_seconds")
+  totalBreakSeconds  Int              @default(0) @map("total_break_seconds")
+  manualBreakSeconds Int              @default(0) @map("manual_break_seconds")
+  idleBreakSeconds   Int              @default(0) @map("idle_break_seconds")
+  breakCount         Int              @default(0) @map("break_count")
+  createdAt          DateTime         @default(now()) @map("created_at")
+  updatedAt          DateTime         @updatedAt @map("updated_at")
+
+  @@unique([userId, date])
+  @@index([date, status])
+  @@map("attendance_days")
+}
+
+// ------------------------------------------------------------------
+// Import framework
+// ------------------------------------------------------------------
+
+model LeadImportBatch {
+  id                  String                      @id @default(uuid())
+  sourceType          ImportSourceType            @map("source_type")
+  leadType            LeadType?                   @map("lead_type") // null for CDR
+  status              ImportStatus                @default(UPLOADED)
+  priority            Int                         @default(100)
+  fileId              String                      @unique @map("file_id")
+  file                LeadImportFile              @relation(fields: [fileId], references: [id])
+  dateFormat          String?                     @map("date_format")
+  columnMappingId     String?                     @map("column_mapping_id")
+  columnMapping       ImportColumnMapping?        @relation(fields: [columnMappingId], references: [id])
+  legacyAgentMode     LegacyAgentPreservationMode @default(DO_NOT_PRESERVE) @map("legacy_agent_mode")
+  totalRows           Int                         @default(0) @map("total_rows")
+  validRows           Int                         @default(0) @map("valid_rows")
+  invalidRows         Int                         @default(0) @map("invalid_rows")
+  duplicateRows       Int                         @default(0) @map("duplicate_rows")
+  alreadyImportedRows Int                         @default(0) @map("already_imported_rows")
+  groupedLeadCount    Int                         @default(0) @map("grouped_lead_count")
+  medicationItemCount Int                         @default(0) @map("medication_item_count")
+  createdById         String                      @map("created_by_id")
+  confirmedAt         DateTime?                   @map("confirmed_at")
+  processedAt         DateTime?                   @map("processed_at")
+  createdAt           DateTime                    @default(now()) @map("created_at")
+  updatedAt           DateTime                    @updatedAt @map("updated_at")
+
+  rows      LeadImportRow[]
+  errors    LeadImportError[]
+  leads     Lead[]
+  cdrImport CdrImport?
+
+  @@index([sourceType, status])
+  @@map("lead_import_batches")
+}
+
+model LeadImportFile {
+  id             String   @id @default(uuid())
+  originalName   String   @map("original_name")
+  storedPath     String   @map("stored_path")
+  mimeType       String   @map("mime_type")
+  sizeBytes      Int      @map("size_bytes")
+  checksumSha256 String   @map("checksum_sha256")
+  uploadedById   String   @map("uploaded_by_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  batch LeadImportBatch?
+
+  @@index([checksumSha256])
+  @@map("lead_import_files")
+}
+
+model ImportColumnMapping {
+  id         String           @id @default(uuid())
+  name       String
+  sourceType ImportSourceType @map("source_type")
+  mapping    Json // { sourceColumn: systemField }
+  isDefault  Boolean          @default(false) @map("is_default")
+  createdAt  DateTime         @default(now()) @map("created_at")
+
+  batches LeadImportBatch[]
+
+  @@map("import_column_mappings")
+}
+
+model LeadImportRow {
+  id              String          @id @default(uuid())
+  batchId         String          @map("batch_id")
+  batch           LeadImportBatch @relation(fields: [batchId], references: [id])
+  sourceRowNumber Int             @map("source_row_number")
+  rawData         Json            @map("raw_data")
+  normalizedData  Json?           @map("normalized_data")
+  groupKey        String?         @map("group_key")
+  isValid         Boolean         @default(true) @map("is_valid")
+  isDuplicate     Boolean         @default(false) @map("is_duplicate")
+  leadId          String?         @map("lead_id")
+  lead            Lead?           @relation(fields: [leadId], references: [id])
+  createdAt       DateTime        @default(now()) @map("created_at")
+
+  errors LeadImportError[]
+
+  @@index([batchId, groupKey])
+  @@index([batchId, isValid])
+  @@map("lead_import_rows")
+}
+
+model LeadImportError {
+  id              String          @id @default(uuid())
+  batchId         String          @map("batch_id")
+  batch           LeadImportBatch @relation(fields: [batchId], references: [id])
+  rowId           String?         @map("row_id")
+  row             LeadImportRow?  @relation(fields: [rowId], references: [id])
+  sourceRowNumber Int             @map("source_row_number")
+  errorCode       String          @map("error_code")
+  errorMessage    String          @map("error_message")
+  createdAt       DateTime        @default(now()) @map("created_at")
+
+  @@index([batchId])
+  @@map("lead_import_errors")
+}
+
+// ------------------------------------------------------------------
+// Leads
+// ------------------------------------------------------------------
+
+model Person {
+  id               String          @id @default(uuid())
+  fullName         String?         @map("full_name")
+  phoneRaw         String          @map("phone_raw")
+  phoneNormalized  String          @map("phone_normalized")
+  nationalId       String?         @map("national_id")
+  gender           String?
+  householdGroupId String?         @map("household_group_id")
+  householdGroup   HouseholdGroup? @relation(fields: [householdGroupId], references: [id])
+  createdAt        DateTime        @default(now()) @map("created_at")
+  updatedAt        DateTime        @updatedAt @map("updated_at")
+
+  leads Lead[]
+
+  @@index([phoneNormalized])
+  @@index([nationalId])
+  @@map("people")
+}
+
+model HouseholdGroup {
+  id              String   @id @default(uuid())
+  phoneNormalized String   @unique @map("phone_normalized")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  people Person[]
+
+  @@map("household_groups")
+}
+
+model Lead {
+  id               String          @id @default(uuid())
+  type             LeadType
+  status           LeadStatus      @default(IMPORTED)
+  personId         String          @map("person_id")
+  person           Person          @relation(fields: [personId], references: [id])
+  batchId          String          @map("batch_id")
+  batch            LeadImportBatch @relation(fields: [batchId], references: [id])
+  branchCode       String?         @map("branch_code")
+  city             String?
+  partner          String? // e.g. "Med Gulf" for insurance; branch group for cash
+  groupKey         String          @map("group_key") // grouping key used at import time
+  sourceLeadDate   DateTime?       @map("source_lead_date")
+  legacyAgentLabel String?         @map("legacy_agent_label")
+  sourceStatusRaw  String?         @map("source_status_raw")
+  batchPriority    Int             @default(100) @map("batch_priority")
+  sourceOrder      Int             @default(0) @map("source_order")
+  createdAt        DateTime        @default(now()) @map("created_at")
+  updatedAt        DateTime        @updatedAt @map("updated_at")
+
+  // Insurance-only reference fields (nullable for Cash leads)
+  appReferenceNo     String?   @map("app_reference_no")
+  claimSequenceId    String?   @map("claim_sequence_id")
+  claimDate          DateTime? @map("claim_date")
+  serviceDate        DateTime? @map("service_date")
+  invoiceNo          String?   @map("invoice_no")
+  payerId            String?   @map("payer_id")
+  policyNo           String?   @map("policy_no")
+  preauthReferenceNo String?   @map("preauth_reference_no")
+  memberClass        String?   @map("member_class")
+  transactionNo      String?   @map("transaction_no")
+
+  medicationItems LeadMedicationItem[]
+  assignments     LeadAssignment[]
+  dispositions    LeadDisposition[]
+  followUps       LeadFollowUp[]
+  orderReference  LeadOrderReference?
+  statusHistory   LeadStatusHistory[]
+  notes           LeadNote[]
+  importRows      LeadImportRow[]
+  callAttempts    CallAttempt[]
+  callMatches     CallMatch[]
+
+  @@index([type, status])
+  @@index([batchId])
+  @@index([groupKey])
+  @@map("leads")
+}
+
+model LeadMedicationItem {
+  id                String   @id @default(uuid())
+  leadId            String   @map("lead_id")
+  lead              Lead     @relation(fields: [leadId], references: [id])
+  sourceItemKey     String   @map("source_item_key") // inv_item_idm or claim_seq_id+code fallback; deterministic for Cash rows too
+  medicationName    String   @map("medication_name")
+  quantity          Decimal  @db.Decimal(12, 2)
+  itemCode          String?  @map("item_code")
+  serviceCode       String?  @map("service_code")
+  upcCode           String?  @map("upc_code")
+  unitServicePrice  Decimal? @map("unit_service_price") @db.Decimal(14, 5)
+  patientShareTotal Decimal? @map("patient_share_total") @db.Decimal(14, 5)
+  payerTaxShare     Decimal? @map("payer_tax_share") @db.Decimal(14, 5)
+  priceRaw          String?  @map("price_raw")
+  priceAmount       Decimal? @map("price_amount") @db.Decimal(14, 2)
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  @@unique([leadId, sourceItemKey])
+  @@index([leadId])
+  @@map("lead_medication_items")
+}
+
+model LeadAssignment {
+  id                   String           @id @default(uuid())
+  leadId               String           @map("lead_id")
+  lead                 Lead             @relation(fields: [leadId], references: [id])
+  agentId              String           @map("agent_id")
+  agent                User             @relation("AssignmentAgent", fields: [agentId], references: [id])
+  source               AssignmentSource
+  teamId               String?          @map("team_id")
+  shiftId              String?          @map("shift_id")
+  assignedAt           DateTime         @default(now()) @map("assigned_at")
+  releasedAt           DateTime?        @map("released_at")
+  releaseActorId       String?          @map("release_actor_id")
+  releaseReason        String?          @map("release_reason")
+  previousAssignmentId String?          @map("previous_assignment_id")
+  // Non-null while assignment is the active lock; set to null on release.
+  activeLeadMarker     String?          @map("active_lead_marker") // equals leadId while active, else null
+  activeAgentMarker    String?          @map("active_agent_marker") // equals agentId while active, else null
+  createdAt            DateTime         @default(now()) @map("created_at")
+
+  callAttempts CallAttempt[]
+  callMatches  CallMatch[]
+
+  @@unique([activeLeadMarker])
+  @@unique([activeAgentMarker])
+  @@index([leadId, assignedAt])
+  @@index([agentId, assignedAt])
+  // Backs dashboard team-scoping (spec 18.2/18.3): filtering/joining
+  // contacted-leads and CDR-verified-calls counts by team.
+  @@index([teamId, assignedAt])
+  @@map("lead_assignments")
+}
+
+model LeadDisposition {
+  id               String          @id @default(uuid())
+  leadId           String          @map("lead_id")
+  lead             Lead            @relation(fields: [leadId], references: [id])
+  assignmentId     String          @map("assignment_id")
+  agentId          String          @map("agent_id")
+  agent            User            @relation(fields: [agentId], references: [id])
+  disposition      DispositionType
+  notes            String?
+  source           String          @default("AGENT")
+  previousValue    Json?           @map("previous_value")
+  // ALREADY_DISPENSED conditional fields (spec 14.2). Enforced 26-80 at the
+  // application layer (packages/validation calculateNextRefillDate) and
+  // defended at the DB layer with a CHECK constraint (see migration).
+  lastDispenseDate DateTime?       @map("last_dispense_date") @db.Date
+  refillPeriodDays Int?            @map("refill_period_days")
+  nextRefillDate   DateTime?       @map("next_refill_date") @db.Date
+  createdAt        DateTime        @default(now()) @map("created_at")
+  updatedAt        DateTime        @updatedAt @map("updated_at")
+  editedById       String?         @map("edited_by_id")
+  editedAt         DateTime?       @map("edited_at")
+
+  @@index([leadId])
+  @@index([agentId, createdAt])
+  @@index([disposition])
+  @@index([nextRefillDate])
+  @@map("lead_dispositions")
+}
+
+model LeadFollowUp {
+  id           String         @id @default(uuid())
+  leadId       String         @map("lead_id")
+  lead         Lead           @relation(fields: [leadId], references: [id])
+  followUpDate DateTime       @map("follow_up_date") @db.Date
+  period       FollowUpPeriod
+  exactTime    String?        @map("exact_time") // HH:mm, optional
+  notes        String?
+  createdById  String         @map("created_by_id")
+  createdAt    DateTime       @default(now()) @map("created_at")
+
+  @@index([leadId])
+  @@index([followUpDate])
+  @@map("lead_follow_ups")
+}
+
+model LeadOrderReference {
+  id                  String   @id @default(uuid())
+  leadId              String   @unique @map("lead_id")
+  lead                Lead     @relation(fields: [leadId], references: [id])
+  externalOrderNumber String   @unique @map("external_order_number")
+  createdById         String   @map("created_by_id")
+  createdAt           DateTime @default(now()) @map("created_at")
+
+  // Backs the Agent Performance report's per-agent "orders created" count.
+  @@index([createdById])
+  @@map("lead_order_references")
+}
+
+model LeadStatusHistory {
+  id         String      @id @default(uuid())
+  leadId     String      @map("lead_id")
+  lead       Lead        @relation(fields: [leadId], references: [id])
+  fromStatus LeadStatus? @map("from_status")
+  toStatus   LeadStatus  @map("to_status")
+  actorId    String?     @map("actor_id")
+  reason     String?
+  createdAt  DateTime    @default(now()) @map("created_at")
+
+  @@index([leadId, createdAt])
+  @@map("lead_status_history")
+}
+
+model LeadNote {
+  id        String   @id @default(uuid())
+  leadId    String   @map("lead_id")
+  lead      Lead     @relation(fields: [leadId], references: [id])
+  authorId  String   @map("author_id")
+  body      String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([leadId])
+  @@map("lead_notes")
+}
+
+// ------------------------------------------------------------------
+// Yeastar CDR
+// ------------------------------------------------------------------
+
+model CdrImport {
+  id             String          @id @default(uuid())
+  batchId        String          @unique @map("batch_id")
+  batch          LeadImportBatch @relation(fields: [batchId], references: [id])
+  sourceTimezone String          @map("source_timezone")
+  totalRows      Int             @default(0) @map("total_rows")
+  matchedRows    Int             @default(0) @map("matched_rows")
+  unmatchedRows  Int             @default(0) @map("unmatched_rows")
+  ambiguousRows  Int             @default(0) @map("ambiguous_rows")
+  createdAt      DateTime        @default(now()) @map("created_at")
+
+  stagingRecords CdrStagingRecord[]
+  records        CdrRecord[]
+
+  @@map("cdr_imports")
+}
+
+model CdrStagingRecord {
+  id                      String        @id @default(uuid())
+  cdrImportId             String        @map("cdr_import_id")
+  cdrImport               CdrImport     @relation(fields: [cdrImportId], references: [id])
+  // NOT unique per row: a single call session (one cdrRecordId) can span
+  // multiple legs/rows (IVR -> transfer -> agent), each with different
+  // Call From/To and status - confirmed against the real sample file, where
+  // ~24% of call sessions have more than one leg (up to 7 legs observed).
+  // sourceRowNumber is the real per-row identity for staging/audit purposes.
+  cdrRecordId             String        @map("cdr_record_id")
+  sourceRowNumber         Int           @map("source_row_number")
+  rawRow                  Json          @map("raw_row")
+  callStartedAtSource     String        @map("call_started_at_source")
+  callFromRaw             String        @map("call_from_raw")
+  callToRaw               String        @map("call_to_raw")
+  direction               CallDirection
+  isRelevant              Boolean       @default(false) @map("is_relevant")
+  customerPhoneNormalized String?       @map("customer_phone_normalized")
+  processedAt             DateTime?     @map("processed_at")
+  createdAt               DateTime      @default(now()) @map("created_at")
+
+  @@unique([cdrImportId, sourceRowNumber])
+  @@index([cdrImportId, cdrRecordId])
+  @@index([customerPhoneNormalized])
+  @@index([cdrImportId, isRelevant])
+  @@map("cdr_staging_records")
+}
+
+model CdrRecord {
+  id                      String             @id @default(uuid())
+  cdrImportId             String             @map("cdr_import_id")
+  cdrImport               CdrImport          @relation(fields: [cdrImportId], references: [id])
+  cdrRecordId             String             @unique @map("cdr_record_id")
+  callStartedAt           DateTime           @map("call_started_at") // UTC
+  direction               CallDirection
+  customerPhoneRaw        String             @map("customer_phone_raw")
+  customerPhoneNormalized String             @map("customer_phone_normalized")
+  agentExtension          String?            @map("agent_extension")
+  agentUserId             String?            @map("agent_user_id")
+  callDurationSeconds     Int                @map("call_duration_seconds")
+  ringDurationSeconds     Int                @map("ring_duration_seconds")
+  talkDurationSeconds     Int                @map("talk_duration_seconds")
+  providerStatusRaw       String             @map("provider_status_raw")
+  providerStatus          CallProviderStatus @map("provider_status")
+  providerReasonRaw       String?            @map("provider_reason_raw")
+  outboundCallerId        String?            @map("outbound_caller_id")
+  createdAt               DateTime           @default(now()) @map("created_at")
+
+  callMatches CallMatch[]
+
+  @@index([customerPhoneNormalized, callStartedAt])
+  @@index([agentExtension, callStartedAt])
+  @@map("cdr_records")
+}
+
+model CallAttempt {
+  id           String         @id @default(uuid())
+  leadId       String         @map("lead_id")
+  lead         Lead           @relation(fields: [leadId], references: [id])
+  assignmentId String         @map("assignment_id")
+  assignment   LeadAssignment @relation(fields: [assignmentId], references: [id])
+  agentId      String         @map("agent_id")
+  clickedAt    DateTime       @default(now()) @map("clicked_at")
+  createdAt    DateTime       @default(now()) @map("created_at")
+
+  matches CallMatch[]
+
+  @@index([leadId])
+  @@index([assignmentId])
+  @@map("call_attempts")
+}
+
+model CallMatch {
+  id             String          @id @default(uuid())
+  callAttemptId  String?         @map("call_attempt_id")
+  callAttempt    CallAttempt?    @relation(fields: [callAttemptId], references: [id])
+  // Nullable because an inbound call can match a lead/assignment with no
+  // Agent having ever clicked Call Customer (e.g. a customer calling back
+  // on their own) - the report still needs to say which lead this relates
+  // to (spec section 17), which callAttemptId alone cannot express.
+  leadId         String?         @map("lead_id")
+  lead           Lead?           @relation(fields: [leadId], references: [id])
+  assignmentId   String?         @map("assignment_id")
+  assignment     LeadAssignment? @relation(fields: [assignmentId], references: [id])
+  cdrRecordId    String          @map("cdr_record_id")
+  cdrRecord      CdrRecord       @relation(fields: [cdrRecordId], references: [id])
+  status         CallMatchStatus
+  mismatchReason String?         @map("mismatch_reason")
+  createdAt      DateTime        @default(now()) @map("created_at")
+
+  @@index([callAttemptId])
+  @@index([leadId])
+  @@index([assignmentId])
+  @@index([cdrRecordId])
+  @@index([status])
+  @@map("call_matches")
+}
+
+// ------------------------------------------------------------------
+// Audit / Settings
+// ------------------------------------------------------------------
+
+model AuditLog {
+  id         String         @id @default(uuid())
+  actorType  AuditActorType @default(USER) @map("actor_type")
+  actorId    String?        @map("actor_id")
+  actor      User?          @relation(fields: [actorId], references: [id])
+  action     String
+  entityType String         @map("entity_type")
+  entityId   String?        @map("entity_id")
+  before     Json?
+  after      Json?
+  ipAddress  String?        @map("ip_address")
+  createdAt  DateTime       @default(now()) @map("created_at")
+
+  @@index([entityType, entityId])
+  @@index([actorId, createdAt])
+  @@index([action, createdAt])
+  @@map("audit_logs")
+}
+
+model SystemSetting {
+  key         String   @id
+  value       Json
+  updatedById String?  @map("updated_by_id")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("system_settings")
+}
