@@ -18,11 +18,11 @@ interface BatchRow {
 export default function CdrImportsPage() {
   const { data } = useQuery({
     queryKey: ["import-batches"],
-    queryFn: () => apiFetch<BatchRow[]>("/imports/batches"),
+    queryFn: () => apiFetch<{ batches: BatchRow[]; total: number }>("/imports/batches?perPage=100"),
     refetchInterval: 10000,
   });
 
-  const cdrBatches = data?.filter((b) => b.sourceType === "CDR") ?? [];
+  const cdrBatches = data?.batches.filter((b) => b.sourceType === "CDR") ?? [];
 
   return (
     <div>

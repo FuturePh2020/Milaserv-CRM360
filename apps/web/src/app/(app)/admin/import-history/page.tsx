@@ -33,9 +33,11 @@ async function downloadErrors(batchId: string, fileName: string) {
 
 export default function ImportHistoryPage() {
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const perPage = 25;
   const { data, isLoading, isError } = useQuery({
-    queryKey: ["import-batches"],
-    queryFn: () => apiFetch<BatchRow[]>("/imports/batches"),
+    queryKey: ["import-batches", page],
+    queryFn: () => apiFetch<{ batches: BatchRow[]; total: number }>(`/imports/batches?page=${page}&perPage=${perPage}`),
     refetchInterval: 10000,
   });
 
@@ -59,14 +61,14 @@ export default function ImportHistoryPage() {
               </tr>
             </thead>
             <tbody>
-              {data.length === 0 && (
+              {data.batches.length === 0 && (
                 <tr>
                   <td colSpan={6} className="px-3 py-6 text-center text-muted-slate">
                     No imports yet.
                   </td>
                 </tr>
               )}
-              {data.map((batch) => (
+              {data.batches.map((batch) => (
                 <tr key={batch.id} className="border-t border-border">
                   <td className="px-3 py-2">{batch.file.originalName}</td>
                   <td className="px-3 py-2">
@@ -111,6 +113,27 @@ export default function ImportHistoryPage() {
               ))}
             </tbody>
           </table>
+          <div className="mt-3 flex items-center justify-between text-sm">
+            <span className="text-muted-slate">
+              Page {page} of {Math.max(1, Math.ceil(data.total / perPage))} ({data.total} total)
+            </span>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page === 1}
+                className="rounded-md border border-border px-3 py-1 disabled:opacity-50"
+              >
+                Previous
+              </button>
+              <button
+                onClick={() => setPage((p) => p + 1)}
+                disabled={page * perPage >= data.total}
+                className="rounded-md border border-border px-3 py-1 disabled:opacity-50"
+              >
+                Next
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

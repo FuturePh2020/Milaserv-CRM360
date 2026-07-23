@@ -74,8 +74,11 @@ export class ImportsController {
   }
 
   @Get("batches")
-  listBatches() {
-    return this.importsService.listBatches();
+  listBatches(
+    @Query("page", new ParseIntPipe({ optional: true })) page = 1,
+    @Query("perPage", new ParseIntPipe({ optional: true })) perPage = 50,
+  ) {
+    return this.importsService.listBatches(page, perPage);
   }
 
   @Get("batches/:id")

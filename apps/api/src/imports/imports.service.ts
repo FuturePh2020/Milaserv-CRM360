@@ -287,11 +287,17 @@ export class ImportsService {
     return batch;
   }
 
-  async listBatches() {
-    return this.prisma.leadImportBatch.findMany({
-      orderBy: { createdAt: "desc" },
-      include: { file: true },
-    });
+  async listBatches(page: number, perPage: number) {
+    const [batches, total] = await Promise.all([
+      this.prisma.leadImportBatch.findMany({
+        orderBy: { createdAt: "desc" },
+        include: { file: true },
+        skip: (page - 1) * perPage,
+        take: perPage,
+      }),
+      this.prisma.leadImportBatch.count(),
+    ]);
+    return { batches, total, page, perPage };
   }
 
   async listErrors(batchId: string, page: number, perPage: number) {

@@ -30,8 +30,6 @@ export function normalizeSaudiPhone(input: string): PhoneNormalizationResult {
     local = digitsOnly.slice(1);
   } else if (digitsOnly.startsWith("5") && digitsOnly.length === SAUDI_LOCAL_LENGTH) {
     local = digitsOnly;
-  } else if (digitsOnly.length === SAUDI_LOCAL_LENGTH && digitsOnly.startsWith("5")) {
-    local = digitsOnly;
   } else {
     local = null;
   }

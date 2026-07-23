@@ -38,4 +38,4 @@ async function bootstrap() {
   console.log(`Milaserv CRM360 API listening on port ${port}`);
 }
 
-bootstrap();
+void bootstrap();

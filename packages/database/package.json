@@ -10,7 +10,8 @@
     "prisma:migrate:deploy": "dotenv -e ../../.env -- prisma migrate deploy",
     "prisma:seed": "dotenv -e ../../.env -- ts-node prisma/seed.ts",
     "build": "prisma generate",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint \"src/**/*.ts\" \"prisma/**/*.ts\""
   },
   "prisma": {
     "seed": "ts-node prisma/seed.ts"
@@ -24,6 +25,9 @@
     "typescript": "^5.6.3",
     "argon2": "^0.41.1",
     "dotenv-cli": "^7.4.2",
-    "@types/node": "^22.7.5"
+    "@types/node": "^22.7.5",
+    "@typescript-eslint/eslint-plugin": "^8.65.0",
+    "@typescript-eslint/parser": "^8.65.0",
+    "eslint": "^8.57.1"
   }
 }
