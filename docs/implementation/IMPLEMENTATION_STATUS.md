@@ -1,6 +1,6 @@
 # Implementation Status
 
-Last updated: 2026-07-23, end of Phase 7 (Phases 0-6 done in earlier passes
+Last updated: 2026-07-23, end of Phase 8 (Phases 0-7 done in earlier passes
 this same session).
 
 This file exists so nobody has to guess what's real. If something isn't
@@ -445,16 +445,56 @@ Not built yet:
   `editedById`/`editedAt` exist in the schema for this but nothing writes
   to them yet).
 
-## Phases 8–12
+## Phase 8 — Search and Take Lead
 
-**Not started.** Search, CDR matching, dashboards, branding polish, and the
-release checklist are all outstanding.
+**Status: Done and live-verified. Take Lead itself was already built and
+proven in Phase 6; this phase adds Leads Search.**
+
+- `packages/validation`: added `maskIdentifier` (generic long-identifier
+  masking - keeps only the last 3 characters) alongside the existing
+  `maskPhone`. 2 new unit tests.
+- `apps/api/src/search/search.service.ts`: searches by normalized phone
+  (household match - everyone sharing that number) or exact national id
+  (identity match). Structurally cannot leak medication/pricing data: the
+  `Lead` query uses an explicit `select` naming every field it returns, and
+  never touches `LeadMedicationItem` at all - there's no `include` for a
+  later change to accidentally widen. Different national IDs sharing a
+  phone are returned as **separate** household entries, never merged into
+  one record (spec §15.2). Results are filtered through the caller's
+  `UserLeadPermission` grants, same model as Take Lead. Rate-limited
+  (30/min) beyond the global default per spec §15's "must be ... rate-
+  limited."
+- **Live end-to-end verification, this session**: searched by phone for a
+  real Cash lead with two medication items (`Mounjaro 10Mg`/`5Mg` from
+  `cash_leads.xlsx`) and confirmed the response contains only
+  `type/partner/branchCode/city/status/hasActiveOwner/callbackEligible/
+  lastContactAt` - no medication name, quantity, or price anywhere.
+  Searched by national id for the real Insurance customer and confirmed
+  `customerName` is shown unmasked (spec allows this) while
+  `maskedPhone`/`maskedIdentity` are masked. Confirmed a 2-character query
+  is rejected with `400`.
+- 6 new unit tests (`search.service.spec.ts`), including one that asserts
+  the exact set of keys in a lead result (`Object.keys(lead).sort()`) so a
+  future accidental field addition fails the test instead of silently
+  leaking.
+
+Not built:
+
+- Partial/fuzzy search (spec allows it but says it "must be permission-
+  controlled and rate-limited" as an explicit opt-in) - only exact
+  phone/national-id match is implemented.
+- No dedicated UI yet (`apps/web` still has only the login page).
+
+## Phases 9–12
+
+**Not started.** CDR matching, dashboards, branding polish, and the release
+checklist are all outstanding.
 
 ## Quality gates, as of this update
 
 ```
-pnpm --filter @milaserv/validation test    # 43/43 passing
-pnpm --filter @milaserv/api test           # 53/53 passing (auth + imports + sessions + devices + leads + dispositions)
+pnpm --filter @milaserv/validation test    # 45/45 passing
+pnpm --filter @milaserv/api test           # 59/59 passing (auth + imports + sessions + devices + leads + dispositions + search)
 pnpm --filter @milaserv/worker test        # 0 tests (processors verified via live integration testing instead - see above)
 cd packages/database && prisma validate    # valid
 cd apps/api && tsc --noEmit                # clean

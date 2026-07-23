@@ -111,10 +111,20 @@ for full detail.
 | Session/permission/no-existing-active-lead preconditions | `apps/api/src/leads/leads.service.spec.ts` | ✅ 9 unit tests |
 | Unique-constraint race (same Agent, two near-simultaneous claims) converted to a clean 409 | same + live-tested indirectly via the 55-agent run | ✅ |
 
-Not yet built (Phase 7/8):
+Releasing an active lead is now built (Phase 7 dispositions).
 
-- Releasing an active lead (no disposition flow exists yet to close an assignment). 🚧
-- Leads Search (Take Lead currently requires a known lead id). 🚧
+## Leads Search (Phase 8)
+
+| Test | Status |
+|---|---|
+| Search hides medication/pricing/medical/insurance-financial data - verified against the actual API response, not the UI | ✅ unit tested (exact-key-set assertion) + **verified live** against a real Cash lead with two medication items |
+| Different national IDs sharing a phone are returned as separate households, never merged | ✅ unit tested + verified live |
+| Customer name shown unmasked, phone/identity masked | ✅ verified live |
+| Results filtered by the caller's lead-type/partner permissions | ✅ unit tested |
+| Query below minimum length rejected | ✅ unit tested + verified live (`400`) |
+| Search results are rate-limited | ✅ implemented (30/min); 🚧 not yet exercised against the actual limit |
+
+Not yet built: partial/fuzzy search (only exact phone/national-id match exists).
 
 ## Dispositions (Phase 7)
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { maskPhone, normalizeSaudiPhone } from "./phone";
+import { maskIdentifier, maskPhone, normalizeSaudiPhone } from "./phone";
 
 describe("normalizeSaudiPhone", () => {
   it.each([
@@ -24,5 +24,15 @@ describe("normalizeSaudiPhone", () => {
 describe("maskPhone", () => {
   it("keeps prefix and last two digits only", () => {
     expect(maskPhone("966500020981")).toBe("96650****81");
+  });
+});
+
+describe("maskIdentifier", () => {
+  it("keeps only the last 3 characters visible", () => {
+    expect(maskIdentifier("2054223520")).toBe("*******520");
+  });
+
+  it("fully masks short values", () => {
+    expect(maskIdentifier("ab")).toBe("**");
   });
 });

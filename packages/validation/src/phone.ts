@@ -48,3 +48,14 @@ export function maskPhone(normalized: string): string {
   if (normalized.length < 6) return "****";
   return `${normalized.slice(0, 5)}****${normalized.slice(-2)}`;
 }
+
+/**
+ * Generic masking for other long identifiers (national id, insurance
+ * identifiers) shown in Agent-facing search results. Keeps only the last 3
+ * characters visible - never enough to identify the person from the masked
+ * value alone.
+ */
+export function maskIdentifier(value: string): string {
+  if (value.length <= 3) return "*".repeat(value.length);
+  return `${"*".repeat(value.length - 3)}${value.slice(-3)}`;
+}
