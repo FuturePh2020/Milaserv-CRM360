@@ -1,6 +1,6 @@
 # Implementation Status
 
-Last updated: 2026-07-23, end of Phase 4 (Phases 0-3 done in earlier passes
+Last updated: 2026-07-23, end of Phase 5 (Phases 0-4 done in earlier passes
 this same session).
 
 This file exists so nobody has to guess what's real. If something isn't
@@ -252,25 +252,67 @@ Known gaps, flagged rather than silently assumed complete:
   schema and this service's rollup logic, but nothing creates an idle break;
   that requires the device heartbeat endpoint in Phase 5.
 
-## Phases 5–12
+## Phase 5 — Activity companion and idle breaks
 
-**Not started as application logic** beyond the activity-companion source
-noted below. Lead distribution, dispositions, search/Take Lead, CDR
+**Status: Server side (device registration, heartbeat auth, idle-break
+creation/closure) is done and live-verified, including the exact worked
+example from the spec. The .NET companion itself remains unverified - no
+Windows/.NET SDK in this sandbox.**
+
+- `apps/api/src/common/guards/device-auth.guard.ts`: authenticates
+  `POST /devices/heartbeat` via a long-lived device token (`Authorization:
+  Device <token>`, hashed at rest like refresh tokens), completely separate
+  from the short-lived user JWT - the companion runs unattended and can't do
+  an interactive login/refresh flow. Confirmed live that a device token
+  cannot authenticate a normal user endpoint (`GET /users` → `401`).
+- `apps/api/src/devices/devices.service.ts`:
+  - `register`: issues a device token for an Agent's device (`POST
+    /devices/register`, requires a normal Agent JWT); refuses to re-register
+    a device already actively claimed by a different user.
+  - `processHeartbeat`: records an `ActivityHeartbeat`, then applies the
+    idle-break rule (spec §5.2) - **the break start time is the reported
+    last-activity timestamp, not the moment the threshold was crossed**.
+    Skips idle logic entirely while the Agent is on an explicit manual
+    break. Idempotent across repeated "still idle" heartbeats (does not open
+    a second idle break).
+- **Live end-to-end verification, this session**: started a session,
+  registered a device, sent a heartbeat reporting 400s idle with
+  `lastActivityAt` ~400s in the past → confirmed the session flipped to
+  `ON_IDLE_BREAK`. Sent a follow-up heartbeat reporting activity resumed
+  (`idleDurationSeconds: 0`) → confirmed the session returned to `ACTIVE`
+  and the `BreakEvent` row's `duration_seconds` matched exactly
+  (`started_at`→`ended_at` = 407s, consistent with "break starts from last
+  activity, not detection time"). Also reproduced the spec's literal worked
+  example (10:00 last activity / 10:05 threshold / 10:12 resume → 12-minute
+  duration) as a unit test.
+- 7 new unit tests (`devices.service.spec.ts`) covering registration
+  conflicts and every idle-break transition.
+
+Not done (tracked honestly, not silently assumed):
+
+- **The .NET companion (`apps/activity-agent`) has not been compiled or
+  run anywhere in this work.** There is no Windows environment or .NET SDK
+  available in this sandbox. The source (Win32 `GetLastInputInfo` idle
+  detection, device registration call, heartbeat loop) exists and was
+  authored to match the API contract above, but it is unverified until
+  someone builds and runs it on Windows against a real API instance.
+- No packaging/installer, auto-start, or Windows-service wrapper for the
+  companion - it is currently a plain console app.
+- No admin UI/endpoint to list or revoke registered devices (the
+  `DeviceRegistration.isActive`/`revokedAt` fields exist in the schema and
+  are honored by the auth guard, but nothing sets `revokedAt` yet).
+
+## Phases 6–12
+
+**Not started.** Lead distribution, dispositions, search/Take Lead, CDR
 matching, dashboards, branding polish, and the release checklist are all
 outstanding.
-
-The .NET activity companion (`apps/activity-agent`) has idle-detection,
-device-registration, and heartbeat-loop source code, but **has not been
-compiled or run** — there is no .NET SDK or Windows environment in this
-sandbox. Treat it as unverified until built on Windows. The corresponding
-server-side device-registration/heartbeat API endpoints it calls
-(`/devices/register`, `/devices/heartbeat`) are also not yet implemented.
 
 ## Quality gates, as of this update
 
 ```
 pnpm --filter @milaserv/validation test    # 43/43 passing
-pnpm --filter @milaserv/api test           # 23/23 passing (auth + imports + sessions)
+pnpm --filter @milaserv/api test           # 30/30 passing (auth + imports + sessions + devices)
 pnpm --filter @milaserv/worker test        # 0 tests (processors verified via live integration testing instead - see above)
 cd packages/database && prisma validate    # valid
 cd apps/api && tsc --noEmit                # clean

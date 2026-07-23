@@ -128,10 +128,17 @@ the expected columns (`ID, Time, Call From, Call To, ...`) and IVR/Queue
 labels (e.g. `IVR Duty Hours - AR_EN<6234>`) plus human agent labels
 (e.g. `Abdelmagied Ali<7033>`), matching the direction-aware parsing rule.
 
-## Idle break (Phase 5) — not yet built
+## Idle break (Phase 5)
 
-- Exact threshold behavior: last activity 10:00, threshold detected 10:05,
-  recorded break start 10:00, resumes 10:12, duration 12 minutes. 🚧
+| Test | Location | Status |
+|---|---|---|
+| Exact threshold behavior: last activity 10:00, threshold detected 10:05, recorded break start 10:00, resumes 10:12, duration 12 minutes | `apps/api/src/devices/devices.service.spec.ts` | ✅ unit tested with the literal spec example, and live-verified end-to-end with real timestamps (see `docs/implementation/IMPLEMENTATION_STATUS.md`) |
+| Idle break start time is the last-activity timestamp, not the detection time | same | ✅ |
+| Idle detection does not fire while on an explicit manual break | same | ✅ |
+| Repeated "still idle" heartbeats do not open a second idle break | same | ✅ |
+| Device token cannot authenticate a normal user endpoint | manual, this session (`GET /users` with a device token → `401`) | ✅ |
+| Device registration refuses to hijack another user's active device | `devices.service.spec.ts` | ✅ |
+| The .NET companion itself (Win32 idle detection, real heartbeat loop against a live API) | — | 🚧 **not verified anywhere** - no Windows/.NET SDK available in this sandbox |
 
 ## Running what exists today
 

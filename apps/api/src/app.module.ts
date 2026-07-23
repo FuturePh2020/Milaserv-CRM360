@@ -11,6 +11,7 @@ import { TeamsModule } from "./teams/teams.module";
 import { ShiftsModule } from "./shifts/shifts.module";
 import { ImportsModule } from "./imports/imports.module";
 import { SessionsModule } from "./sessions/sessions.module";
+import { DevicesModule } from "./devices/devices.module";
 import { AuditModule } from "./audit/audit.module";
 import { JwtAuthGuard } from "./common/guards/jwt-auth.guard";
 import { RolesGuard } from "./common/guards/roles.guard";
@@ -27,6 +28,7 @@ import { RolesGuard } from "./common/guards/roles.guard";
     ShiftsModule,
     ImportsModule,
     SessionsModule,
+    DevicesModule,
   ],
   controllers: [AppController],
   providers: [
