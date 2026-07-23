@@ -1,6 +1,6 @@
 # Implementation Status
 
-Last updated: 2026-07-23, end of Phase 3 (Phases 0-2 done in earlier passes
+Last updated: 2026-07-23, end of Phase 4 (Phases 0-3 done in earlier passes
 this same session).
 
 This file exists so nobody has to guess what's real. If something isn't
@@ -193,22 +193,84 @@ Not yet built (still Phase 9, unchanged):
   dictionary (spec §9.2 allows normalizing "known spelling variants"; no
   such dictionary exists yet).
 
-## Phases 4–12
+## Phase 4 — Sessions, manual breaks, attendance
 
-**Not started.** Sessions/breaks, activity companion wiring end-to-end, lead
-distribution, dispositions, search/Take Lead, CDR matching, dashboards,
-branding polish, and the release checklist are all outstanding.
+**Status: Done for manual breaks and the session state machine, live-verified
+end-to-end. Idle breaks are explicitly Phase 5 (require the activity
+companion). Daily attendance classification covers the cases session/break
+activity can determine; schedule-driven statuses (VACATION/DAY_OFF/ABSENT)
+and a day-boundary cron sweep are not built.**
+
+- `packages/validation/src/timezone.ts`: `toCairoDateString` - the one place
+  UTC→Africa/Cairo calendar-day conversion happens, via `Intl.DateTimeFormat`
+  (correct across any historical/future DST changes since it uses the IANA
+  tz database, not a fixed offset). 2 unit tests, including a UTC-day-vs-
+  Cairo-day rollover case.
+- `apps/api/src/sessions/sessions.service.ts`: start/end session, start/end
+  manual break, `assertActiveAndNotOnBreak` (the shared precondition Phase 6
+  Generate/Take Lead and Phase 7 Call Customer will call), admin
+  monitoring (`listActiveSessions`, scoped to team for Shift Supervisor),
+  and force-close with a required reason. One active session per user is
+  enforced by the same nullable-marker unique-constraint pattern as leads
+  (`docs/architecture/DATA_MODEL.md`) - a second `Start Session` call gets a
+  clean `409`, not a race condition. 12 unit tests covering the state
+  machine (double-start, break-while-on-break, ending a session while on
+  break, work-seconds calculation).
+- `apps/api/src/sessions/attendance.service.ts`: `recomputeDay` rolls up
+  `WorkSession`/`BreakEvent` rows that started on a given Africa/Cairo
+  calendar day into an `AttendanceDay` row, called after every session/break
+  end and force-close. Classifies `WORKED_NO_BREAK` (zero breaks - never
+  `VACATION`, per the non-negotiable rule) vs `PRESENT` (had at least one
+  break) vs `FORCE_CLOSED`/`SESSION_NOT_CLOSED`.
+- **Live end-to-end verification, this session**: started a session →
+  confirmed a second `Start Session` call correctly 409s → started a manual
+  break → confirmed a second break-start 409s → confirmed `GET
+  breaks/current` returns the open break → ended the break → ended the
+  session → confirmed `GET /attendance/me` shows the correct rollup
+  (`PRESENT`, `breakCount: 1`, `manualBreakSeconds` matching the actual
+  elapsed time). Also verified the admin path: `GET /sessions/active` lists
+  the live session scoped correctly, an Agent gets `403` attempting
+  `force-close`, and a Team Leader's force-close correctly sets
+  `FORCE_CLOSED` with the reason recorded.
+
+Known gaps, flagged rather than silently assumed complete:
+
+- **Cross-midnight sessions**: `recomputeDay` attributes all of a
+  session/break's seconds to the Cairo day it *started* on. A session that
+  runs past midnight Cairo time is not split across two `AttendanceDay`
+  rows. Spec §5.4 implies a day-boundary process; no cron/scheduler
+  infrastructure exists yet to run one (see Phase 12).
+- **`PARTIAL_SESSION` is never assigned.** Doing so correctly requires
+  comparing actual session duration against the assigned `ShiftSchedule`,
+  which isn't wired up yet.
+- **`VACATION`/`DAY_OFF`/`ABSENT` are never assigned.** These are meant to
+  come from schedule data or explicit admin classification (spec §5.4),
+  neither of which is built - `recomputeDay` only ever writes a row when
+  there was actual session activity that day, and deliberately does not
+  invent a status for days with no activity.
+- No idle breaks yet - `BreakEvent.type = IDLE` is fully supported by the
+  schema and this service's rollup logic, but nothing creates an idle break;
+  that requires the device heartbeat endpoint in Phase 5.
+
+## Phases 5–12
+
+**Not started as application logic** beyond the activity-companion source
+noted below. Lead distribution, dispositions, search/Take Lead, CDR
+matching, dashboards, branding polish, and the release checklist are all
+outstanding.
 
 The .NET activity companion (`apps/activity-agent`) has idle-detection,
 device-registration, and heartbeat-loop source code, but **has not been
 compiled or run** — there is no .NET SDK or Windows environment in this
-sandbox. Treat it as unverified until built on Windows.
+sandbox. Treat it as unverified until built on Windows. The corresponding
+server-side device-registration/heartbeat API endpoints it calls
+(`/devices/register`, `/devices/heartbeat`) are also not yet implemented.
 
 ## Quality gates, as of this update
 
 ```
-pnpm --filter @milaserv/validation test    # 41/41 passing
-pnpm --filter @milaserv/api test           # 11/11 passing (auth + imports)
+pnpm --filter @milaserv/validation test    # 43/43 passing
+pnpm --filter @milaserv/api test           # 23/23 passing (auth + imports + sessions)
 pnpm --filter @milaserv/worker test        # 0 tests (processors verified via live integration testing instead - see above)
 cd packages/database && prisma validate    # valid
 cd apps/api && tsc --noEmit                # clean

@@ -74,6 +74,26 @@ for full detail) - not yet automated as integration tests:
 | Grouping/item-key idempotency across separate import batches (not just within one file) | ✅ verified live: re-uploaded and fully re-processed the identical `cash_leads.xlsx`; lead count stayed 18, item count stayed 19 |
 | Rows that fail Cash/Insurance-specific parsing (bad phone/date) despite passing Phase 2's structural check are recorded as new import errors | ✅ implemented (`CASH_PARSE_FAILED`/`INSURANCE_PARSE_FAILED`); 🚧 not yet exercised against a real malformed row in this session's testing |
 
+## Sessions, breaks, attendance (Phase 4)
+
+| Test | Location | Status |
+|---|---|---|
+| Africa/Cairo calendar-day conversion, including a UTC-day/Cairo-day rollover case | `packages/validation/src/timezone.test.ts` | ✅ |
+| Double `Start Session` gets a clean conflict, not a race | `apps/api/src/sessions/sessions.service.spec.ts` + verified live | ✅ |
+| Cannot start/end a break without an open session | same | ✅ |
+| Cannot start a break while already on break; cannot end a break when not on break | same | ✅ |
+| Cannot end a session while on break | same | ✅ |
+| Work-seconds calculation excludes break time | same | ✅ |
+| Attendance rollup: `WORKED_NO_BREAK` vs `PRESENT` vs `FORCE_CLOSED` | ✅ verified live (`PRESENT` with `breakCount: 1` after a real break) for PRESENT/WORKED_NO_BREAK; 🚧 FORCE_CLOSED rollup not yet exercised through `recomputeDay` specifically (force-close itself was verified) |
+| Live end-to-end: start session → break → end break → end session → attendance rollup correct | manual, this session | ✅ |
+| Admin session monitor scoped correctly; Agent forbidden from force-close; Team Leader force-close records reason | manual, this session | ✅ |
+
+Not yet built (see `docs/implementation/IMPLEMENTATION_STATUS.md`):
+
+- Idle break exact-threshold test (Phase 5, requires the activity companion / heartbeat endpoint). 🚧
+- Cross-midnight session splitting / day-boundary sweep. 🚧
+- `PARTIAL_SESSION`/`VACATION`/`DAY_OFF`/`ABSENT` classification. 🚧
+
 ## Lead distribution (Phase 6) — not yet built
 
 - Generate Lead: ≥50 concurrent requests, no duplicate lead, one active lead per Agent. 🚧
