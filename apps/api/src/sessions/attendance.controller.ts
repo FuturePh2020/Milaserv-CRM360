@@ -29,6 +29,14 @@ export class AttendanceController {
   }
 
   @Roles(UserRole.TEAM_LEADER, UserRole.SHIFT_SUPERVISOR)
+  @Get("monthly")
+  getMonthly(@CurrentUser() actor: AuthenticatedUser, @Query("month") month?: string) {
+    const targetMonth = month ?? new Date().toISOString().slice(0, 7);
+    const teamId = actor.role === UserRole.SHIFT_SUPERVISOR ? (actor.teamId ?? "__none__") : undefined;
+    return this.attendanceService.getMonthlyAttendance(targetMonth, teamId);
+  }
+
+  @Roles(UserRole.TEAM_LEADER, UserRole.SHIFT_SUPERVISOR)
   @Get("users/:userId")
   async getForUser(
     @CurrentUser() actor: AuthenticatedUser,

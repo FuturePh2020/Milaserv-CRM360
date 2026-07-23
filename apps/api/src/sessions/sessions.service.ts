@@ -193,6 +193,34 @@ export class SessionsService {
     return this.prisma.breakEvent.findFirst({ where: { sessionId: session.id, endedAt: null } });
   }
 
+  /** Agent nav "My Session History" (spec 3.2) - own sessions only, paginated. */
+  async listSessionHistory(userId: string, page: number, perPage: number) {
+    const [rows, total] = await Promise.all([
+      this.prisma.workSession.findMany({
+        where: { userId },
+        orderBy: { startedAt: "desc" },
+        skip: (page - 1) * perPage,
+        take: perPage,
+      }),
+      this.prisma.workSession.count({ where: { userId } }),
+    ]);
+    return { rows, total, page, perPage };
+  }
+
+  /** Agent nav "My Breaks" (spec 3.2) - own breaks only, paginated. */
+  async listBreakHistory(userId: string, page: number, perPage: number) {
+    const [rows, total] = await Promise.all([
+      this.prisma.breakEvent.findMany({
+        where: { userId },
+        orderBy: { startedAt: "desc" },
+        skip: (page - 1) * perPage,
+        take: perPage,
+      }),
+      this.prisma.breakEvent.count({ where: { userId } }),
+    ]);
+    return { rows, total, page, perPage };
+  }
+
   /** Team Leader / Shift Supervisor monitoring view, scoped to team. */
   async listActiveSessions(actor: AuthenticatedUser) {
     const where =

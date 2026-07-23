@@ -106,4 +106,58 @@ export class AttendanceService {
       orderBy: { date: "desc" },
     });
   }
+
+  /**
+   * Admin nav "Monthly Attendance" (spec 3.1) - one row per Agent for the
+   * given calendar month, rolled up from the daily AttendanceDay rows
+   * Phase 4 already writes. `month` is "YYYY-MM"; `teamId` scopes to a
+   * Shift Supervisor's own team (resolved by the caller).
+   */
+  async getMonthlyAttendance(month: string, teamId?: string) {
+    const [year, monthNum] = month.split("-").map(Number);
+    const start = new Date(Date.UTC(year, monthNum - 1, 1));
+    const end = new Date(Date.UTC(year, monthNum, 1));
+
+    const users = await this.prisma.user.findMany({
+      where: { role: "AGENT", ...(teamId && { teamId }) },
+      select: { id: true, fullName: true },
+    });
+    if (users.length === 0) return [];
+    const userIds = users.map((u) => u.id);
+
+    const [sums, statusCounts] = await Promise.all([
+      this.prisma.attendanceDay.groupBy({
+        by: ["userId"],
+        where: { userId: { in: userIds }, date: { gte: start, lt: end } },
+        _sum: { totalWorkSeconds: true, totalBreakSeconds: true, manualBreakSeconds: true, idleBreakSeconds: true },
+        _count: { _all: true },
+      }),
+      this.prisma.attendanceDay.groupBy({
+        by: ["userId", "status"],
+        where: { userId: { in: userIds }, date: { gte: start, lt: end } },
+        _count: { _all: true },
+      }),
+    ]);
+
+    const sumsByUser = new Map(sums.map((s) => [s.userId, s]));
+    const statusByUser = new Map<string, Record<string, number>>();
+    for (const row of statusCounts) {
+      if (!statusByUser.has(row.userId)) statusByUser.set(row.userId, {});
+      statusByUser.get(row.userId)![row.status] = row._count._all;
+    }
+
+    return users.map((user) => {
+      const sum = sumsByUser.get(user.id);
+      return {
+        userId: user.id,
+        fullName: user.fullName,
+        daysRecorded: sum?._count._all ?? 0,
+        totalWorkSeconds: sum?._sum.totalWorkSeconds ?? 0,
+        totalBreakSeconds: sum?._sum.totalBreakSeconds ?? 0,
+        manualBreakSeconds: sum?._sum.manualBreakSeconds ?? 0,
+        idleBreakSeconds: sum?._sum.idleBreakSeconds ?? 0,
+        statusCounts: statusByUser.get(user.id) ?? {},
+      };
+    });
+  }
 }

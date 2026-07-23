@@ -12,39 +12,35 @@ interface NavItem {
   href?: string;
 }
 
-// Spec section 3: full navigation structure per role. Only the items with an
-// `href` have a page behind them yet - the rest render as a disabled,
-// clearly-labeled placeholder so the shell matches the spec's structure
-// without pretending unbuilt pages work (Phase 12/future work builds them).
 const ADMIN_NAV: NavItem[] = [
   { label: "Overview", href: "/dashboard" },
-  { label: "Live Shift Monitor" },
-  { label: "Leads Distributor" },
-  { label: "Cash Leads" },
-  { label: "Insurance Leads" },
-  { label: "Leads Search" },
-  { label: "Lead Reports" },
+  { label: "Live Shift Monitor", href: "/admin/live-shift-monitor" },
+  { label: "Leads Distributor", href: "/admin/leads-distributor" },
+  { label: "Cash Leads", href: "/admin/cash-leads" },
+  { label: "Insurance Leads", href: "/admin/insurance-leads" },
+  { label: "Leads Search", href: "/admin/leads-search" },
+  { label: "Lead Reports", href: "/admin/lead-reports" },
   { label: "Converted Leads", href: "/dashboard/converted-leads" },
-  { label: "Sessions & Breaks" },
-  { label: "Monthly Attendance" },
-  { label: "Yeastar CDR Imports" },
-  { label: "CDR Matching Reports" },
-  { label: "Users & Shifts" },
-  { label: "Import History" },
-  { label: "Audit Log" },
-  { label: "Settings" },
+  { label: "Sessions & Breaks", href: "/admin/live-shift-monitor" },
+  { label: "Monthly Attendance", href: "/admin/monthly-attendance" },
+  { label: "Yeastar CDR Imports", href: "/admin/cdr-imports" },
+  { label: "CDR Matching Reports", href: "/admin/cdr-reports" },
+  { label: "Users & Shifts", href: "/admin/users-shifts" },
+  { label: "Import History", href: "/admin/import-history" },
+  { label: "Audit Log", href: "/admin/audit-log" },
+  { label: "Settings", href: "/admin/settings" },
 ];
 
 const AGENT_NAV: NavItem[] = [
   { label: "Start Session / Current Session", href: "/agent" },
-  { label: "My Current Lead" },
-  { label: "Lead Distributor" },
-  { label: "Cash Leads" },
-  { label: "Insurance Leads" },
-  { label: "Leads Search" },
+  { label: "My Current Lead", href: "/agent/leads" },
+  { label: "Lead Distributor", href: "/agent/leads" },
+  { label: "Cash Leads", href: "/agent/leads/cash" },
+  { label: "Insurance Leads", href: "/agent/leads/insurance" },
+  { label: "Leads Search", href: "/agent/leads/search" },
   { label: "My Daily Results", href: "/agent" },
-  { label: "My Breaks" },
-  { label: "My Session History" },
+  { label: "My Breaks", href: "/agent/breaks" },
+  { label: "My Session History", href: "/agent/history" },
 ];
 
 export function AppShell({ children }: { children: React.ReactNode }) {

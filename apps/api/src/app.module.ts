@@ -18,6 +18,7 @@ import { SearchModule } from "./search/search.module";
 import { ExtensionMappingsModule } from "./extension-mappings/extension-mappings.module";
 import { CdrModule } from "./cdr/cdr.module";
 import { DashboardsModule } from "./dashboards/dashboards.module";
+import { SettingsModule } from "./settings/settings.module";
 import { AuditModule } from "./audit/audit.module";
 import { JwtAuthGuard } from "./common/guards/jwt-auth.guard";
 import { RolesGuard } from "./common/guards/roles.guard";
@@ -41,6 +42,7 @@ import { RolesGuard } from "./common/guards/roles.guard";
     ExtensionMappingsModule,
     CdrModule,
     DashboardsModule,
+    SettingsModule,
   ],
   controllers: [AppController],
   providers: [

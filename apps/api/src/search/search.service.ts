@@ -21,6 +21,8 @@ export interface SearchHouseholdResult {
   customerName: string | null;
   maskedPhone: string;
   maskedIdentity: string | null;
+  phone?: string;
+  identity?: string | null;
   leads: SearchLeadResult[];
 }
 
@@ -36,17 +38,37 @@ export class SearchService {
   constructor(private readonly prisma: PrismaService) {}
 
   async search(actor: AuthenticatedUser, query: string): Promise<{ households: SearchHouseholdResult[] }> {
-    const trimmed = query.trim();
-    if (trimmed.length < 3) {
-      throw new BadRequestException("Search query must be at least 3 characters.");
-    }
-
     const permissions = await this.prisma.userLeadPermission.findMany({
       where: { userId: actor.id },
       select: { leadType: true, partner: true },
     });
     const isPermitted = (leadType: string, partner: string | null) =>
       permissions.some((p) => p.leadType === leadType && (p.partner === "ALL" || p.partner === (partner ?? "ALL")));
+
+    return this.runSearch(query, { isPermitted, unmasked: false });
+  }
+
+  /**
+   * Admin Leads Search (spec nav "Leads Search" under Admin navigation,
+   * section 3.1) - Team Leader/Shift Supervisor "view all leads" (spec
+   * 2.1), so unlike the Agent search this is never permission-filtered and
+   * returns unmasked phone/identity, consistent with this project's existing
+   * convention of unmasking identity for these two roles elsewhere (e.g. the
+   * CDR match report). Still never touches LeadMedicationItem/pricing - this
+   * stays a lightweight search result, not a full lead detail view.
+   */
+  async adminSearch(query: string): Promise<{ households: SearchHouseholdResult[] }> {
+    return this.runSearch(query, { isPermitted: () => true, unmasked: true });
+  }
+
+  private async runSearch(
+    query: string,
+    options: { isPermitted: (leadType: string, partner: string | null) => boolean; unmasked: boolean },
+  ): Promise<{ households: SearchHouseholdResult[] }> {
+    const trimmed = query.trim();
+    if (trimmed.length < 3) {
+      throw new BadRequestException("Search query must be at least 3 characters.");
+    }
 
     const phoneResult = normalizeSaudiPhone(trimmed);
 
@@ -89,7 +111,7 @@ export class SearchService {
 
     const leadsByPerson = new Map<string, SearchLeadResult[]>();
     for (const lead of leads) {
-      if (!isPermitted(lead.type, lead.partner)) continue;
+      if (!options.isPermitted(lead.type, lead.partner)) continue;
       const entry = leadsByPerson.get(lead.personId) ?? [];
       entry.push({
         leadId: lead.id,
@@ -110,6 +132,7 @@ export class SearchService {
       customerName: person.fullName,
       maskedPhone: maskPhone(person.phoneNormalized),
       maskedIdentity: person.nationalId ? maskIdentifier(person.nationalId) : null,
+      ...(options.unmasked && { phone: person.phoneNormalized, identity: person.nationalId }),
       leads: leadsByPerson.get(person.id) ?? [],
     }));
 

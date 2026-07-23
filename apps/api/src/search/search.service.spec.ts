@@ -115,4 +115,32 @@ describe("SearchService", () => {
       expect.objectContaining({ where: { nationalId: "1234567890" } }),
     );
   });
+
+  describe("adminSearch", () => {
+    it("returns unmasked phone/identity and is never permission-filtered", async () => {
+      prisma.person.findMany.mockResolvedValue([
+        { id: "person-1", fullName: "Person One", phoneNormalized: "966500020981", nationalId: "1111111111" },
+      ]);
+      prisma.lead.findMany.mockResolvedValue([
+        {
+          id: "lead-insurance",
+          personId: "person-1",
+          type: LeadType.INSURANCE,
+          partner: "Med Gulf",
+          branchCode: null,
+          city: null,
+          status: LeadStatus.AVAILABLE,
+          assignments: [],
+          callAttempts: [],
+        },
+      ]);
+
+      const result = await service.adminSearch("0500020981");
+
+      expect(prisma.userLeadPermission.findMany).not.toHaveBeenCalled();
+      expect(result.households[0].leads).toHaveLength(1); // no permission filtering
+      expect(result.households[0].phone).toBe("966500020981");
+      expect(result.households[0].identity).toBe("1111111111");
+    });
+  });
 });

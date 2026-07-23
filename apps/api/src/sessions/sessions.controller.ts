@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Param, Post, Query, UseGuards } from "@nestjs/common";
 import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
 import { UserRole } from "@milaserv/database";
 import { Roles } from "../common/decorators/roles.decorator";
@@ -49,6 +49,26 @@ export class SessionsController {
   @Get("breaks/current")
   currentBreak(@CurrentUser() actor: AuthenticatedUser) {
     return this.sessionsService.getCurrentBreak(actor.id);
+  }
+
+  @Roles(UserRole.AGENT)
+  @Get("history")
+  history(
+    @CurrentUser() actor: AuthenticatedUser,
+    @Query("page") page = "1",
+    @Query("perPage") perPage = "25",
+  ) {
+    return this.sessionsService.listSessionHistory(actor.id, Number(page), Number(perPage));
+  }
+
+  @Roles(UserRole.AGENT)
+  @Get("breaks/history")
+  breakHistory(
+    @CurrentUser() actor: AuthenticatedUser,
+    @Query("page") page = "1",
+    @Query("perPage") perPage = "25",
+  ) {
+    return this.sessionsService.listBreakHistory(actor.id, Number(page), Number(perPage));
   }
 
   @Roles(UserRole.TEAM_LEADER, UserRole.SHIFT_SUPERVISOR)
