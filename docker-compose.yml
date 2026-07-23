@@ -37,6 +37,15 @@ services:
       dockerfile: apps/api/Dockerfile
     restart: unless-stopped
     env_file: .env
+    environment:
+      # .env is written for host-based local dev (Postgres/Redis on
+      # localhost) - inside this container "localhost" would mean the api
+      # container itself, not the sibling postgres/redis containers, so
+      # these must be overridden to the Compose service names regardless
+      # of whatever .env says. `environment:` takes precedence over
+      # `env_file:` for the same key.
+      DATABASE_URL: postgresql://${POSTGRES_USER:-milaserv}:${POSTGRES_PASSWORD:-change_me}@postgres:5432/${POSTGRES_DB:-milaserv_crm360}?schema=public&connection_limit=60&pool_timeout=20
+      REDIS_HOST: redis
     depends_on:
       postgres:
         condition: service_healthy
@@ -53,6 +62,9 @@ services:
       dockerfile: apps/worker/Dockerfile
     restart: unless-stopped
     env_file: .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-milaserv}:${POSTGRES_PASSWORD:-change_me}@postgres:5432/${POSTGRES_DB:-milaserv_crm360}?schema=public&connection_limit=60&pool_timeout=20
+      REDIS_HOST: redis
     depends_on:
       postgres:
         condition: service_healthy

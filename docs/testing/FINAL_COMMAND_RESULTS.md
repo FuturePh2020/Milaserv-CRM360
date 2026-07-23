@@ -204,7 +204,8 @@ $ service docker start
 Exit non-zero (daemon does not start).
 ```
 `docker compose config` (pure syntax/variable-interpolation validation, no
-daemon required) passes cleanly - the compose file itself is valid. The
+daemon required) passes cleanly for both `docker-compose.yml` and the new
+`docker-compose.demo.yml` - the compose files themselves are valid. The
 Docker *daemon* cannot start in this sandbox at all (a `ulimit`/capability
 restriction confirmed by directly attempting `service docker start`, not a
 registry-access issue - unchanged from Phase 12's finding, re-confirmed
@@ -212,6 +213,29 @@ fresh this pass). `docker compose build`/`up` remain genuinely unverified in
 this specific environment. **This must be re-verified on a host with a
 working Docker daemon before relying on it for the demo** - it cannot
 honestly be marked PASS here.
+
+**Two significant bugs were found and fixed via this config-validation
+step alone, without ever needing a working daemon** (see
+`FINAL_REPOSITORY_AUDIT.md` findings #9/#10/#12 for full detail):
+- No `Dockerfile` existed anywhere in the repo despite `docker-compose.yml`
+  referencing three of them by path since Phase 0 - `docker compose build`
+  would have failed with "Dockerfile not found" on *any* host, daemon
+  restriction or not. Three real multi-stage Dockerfiles were written.
+- Both `api` and `worker` services inherited `DATABASE_URL`/`REDIS_HOST`
+  pointed at `localhost` from `.env` (correct for host-based local dev,
+  meaningless inside a container - `localhost` there means the container
+  itself). Fixed with explicit `environment:` overrides pointing at the
+  `postgres`/`redis` service names in both compose files.
+- Building the API's Dockerfile also surfaced, independently of Docker
+  itself, that `node dist/main.js` - the actual documented production
+  start command - has never once worked in this project (see finding #10):
+  `packages/contracts`/`packages/validation` pointed their `main` fields at
+  raw `.ts` source, which only `ts-node`/`ts-jest` can execute. Every prior
+  "live verification" in every phase used `ts-node src/main.ts`, never the
+  real compiled artifact, so this was never caught until building an actual
+  production Docker image forced the real start command to be tried. Fixed;
+  confirmed `node apps/api/dist/main.js` and `node apps/worker/dist/main.js`
+  both now start cleanly and serve real requests.
 
 ## Health checks (dev-mode processes, not containers - the only way to run
 ## the app end-to-end in this sandbox)

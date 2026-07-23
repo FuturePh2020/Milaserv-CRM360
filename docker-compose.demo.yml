@@ -1,0 +1,117 @@
+# Free public demo stack. A standalone file (not a docker-compose.yml
+# override) so the normal local-dev docker-compose.yml - which exposes
+# postgres/redis/api/web directly on the host for convenient local
+# debugging - is left completely untouched.
+#
+# Run with: docker compose -f docker-compose.demo.yml up --build
+#
+# Only `gateway` publishes a port to the host (127.0.0.1:8080). Postgres,
+# Redis, the API, the worker, and the web app all stay on the internal
+# `default` network only - reachable from each other by service name, never
+# from outside the Docker network. Pair with a Cloudflare Quick Tunnel
+# pointed at 127.0.0.1:8080 (see docs/deployment/FREE_PUBLIC_DEMO.md) to put
+# this on the public internet without opening any other port.
+
+name: milaserv-crm360-demo
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-milaserv}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me}
+      POSTGRES_DB: ${POSTGRES_DB:-milaserv_crm360}
+    volumes:
+      - milaserv_demo_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-milaserv} -d ${POSTGRES_DB:-milaserv_crm360}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - milaserv_demo_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      DEMO_MODE: "true"
+      # .env is written for host-based local dev - inside this container
+      # "localhost" would mean the api container itself, not the sibling
+      # postgres/redis containers. environment: overrides env_file: for
+      # the same key.
+      DATABASE_URL: postgresql://${POSTGRES_USER:-milaserv}:${POSTGRES_PASSWORD:-change_me}@postgres:5432/${POSTGRES_DB:-milaserv_crm360}?schema=public&connection_limit=60&pool_timeout=20
+      REDIS_HOST: redis
+      # Same-origin through the gateway - CORS_ORIGIN only matters for the
+      # rare case of a browser hitting the API directly, which the demo
+      # never does, but keep it aligned with the gateway's public origin
+      # rather than defaulting to localhost:3000.
+      CORS_ORIGIN: ${DEMO_PUBLIC_ORIGIN:-http://localhost:8080}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - milaserv_demo_uploads:/app/storage/uploads
+
+  worker:
+    build:
+      context: .
+      dockerfile: apps/worker/Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER:-milaserv}:${POSTGRES_PASSWORD:-change_me}@postgres:5432/${POSTGRES_DB:-milaserv_crm360}?schema=public&connection_limit=60&pool_timeout=20
+      REDIS_HOST: redis
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - milaserv_demo_uploads:/app/storage/uploads
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        # Baked into the client bundle at build time - same-origin path
+        # through the gateway, not an absolute cross-port URL.
+        NEXT_PUBLIC_API_URL: /api
+        NEXT_PUBLIC_DEMO_MODE: "true"
+    restart: unless-stopped
+    depends_on:
+      - api
+
+  gateway:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    depends_on:
+      - api
+      - web
+    volumes:
+      - ./nginx/demo.conf:/etc/nginx/nginx.conf:ro
+    ports:
+      - "127.0.0.1:8080:8080"
+
+volumes:
+  milaserv_demo_postgres_data:
+  milaserv_demo_redis_data:
+  milaserv_demo_uploads:
