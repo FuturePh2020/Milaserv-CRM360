@@ -140,14 +140,28 @@ Not yet built: partial/fuzzy search (only exact phone/national-id match exists).
 | Wrong Number → INVALID_NUMBER, closes assignment | ✅ unit tested |
 | Other final dispositions → COMPLETED, closes assignment | ✅ unit tested (caught a real bug: `ALREADY_DISPENSED` was missing from the switch statement entirely until this test failed) |
 
-## CDR (Phase 9) — not yet built
+## CDR (Phase 9)
 
-- Large file, thousands of unrelated numbers ignored. 🚧
-- Inbound/outbound direction handled correctly. 🚧
-- IVR/Queue excluded from Agent matching. 🚧
-- Duplicate import is idempotent (no duplicate `CdrRecord` rows). 🚧
-- Ambiguous matches stay `AMBIGUOUS`, never silently resolved. 🚧
-- CDR timezone setting honored end-to-end. 🚧
+Timestamp/endpoint parsing unit tests live in `packages/validation/src/
+timezone.test.ts` (8 tests) and `cdr-endpoint.test.ts` (5 tests). Everything
+else below was verified live against a real Postgres instance - a mocked
+Prisma client cannot exercise the multi-leg grouping query, the raw-SQL
+relevance join, or genuine duplicate-batch idempotency.
+
+| Test | Status |
+|---|---|
+| Large file, thousands of unrelated numbers ignored (never promoted past staging) | ✅ verified live against the real 65,535-row `yeastar_cdr_sample.xls`: 65,526 rows staged, 0 promoted to `CdrRecord` (correct - this test DB's synthetic leads have no reason to share a phone number with the real sample's customers; the relevance join itself was proven correct separately by the synthetic fixture below, which *does* get promoted) |
+| Multi-leg call sessions (IVR → transfer → agent, sharing one `cdrRecordId`) grouped into a single `CdrRecord`, not lost or double-counted | ✅ **caught a real bug live**: the original unique-constraint design silently discarded every leg after the first for the 8,561 of 35,891 real sessions (24%) that span 2-7 legs. Fixed (migration `20260723185141_cdr_staging_multi_leg_fix` + `cdr.processor.ts` rewrite); re-verified against the real file: all 65,526 valid rows now stage correctly across exactly 35,891 distinct sessions (cross-checked independently with a Python script over the raw file) |
+| Yeastar "Time" column parses in both its real-world variants (with and without seconds) | ✅ **caught a real bug live**: re-running the real file surfaced 15,009/65,526 rows (23%) failing `CDR_PARSE_FAILED` because the regex assumed seconds were never present; the actual file mixes both. Fixed (optional seconds group in `parseCdrTimestamp`); re-verified against the real file: 0 `CDR_PARSE_FAILED` rows afterward |
+| Inbound/outbound direction handled correctly, including picking the correct final agent endpoint for a multi-leg inbound call | ✅ verified live via the synthetic fixture (outbound → `MATCHED` against the calling agent; inbound-to-IVR → `NOT_MATCHED`); the multi-leg agent-endpoint-selection logic itself (last non-system leg for inbound) is exercised by the real file's grouping (no crashes/mismatches across 35,891 sessions) but has no real multi-leg *match* to assert against in this test DB - 🚧 a synthetic multi-leg inbound fixture with a real matching lead would close this gap |
+| IVR/Queue excluded from Agent matching | ✅ verified live: a synthetic inbound call reaching only an IVR endpoint resolved to `NOT_MATCHED`, not `MATCHED`/`UNMAPPED_EXTENSION` |
+| Unmapped extension flagged, not silently ignored or mis-matched | ✅ verified live: a synthetic call to an extension with no `ExtensionMapping` resolved to `UNMAPPED_EXTENSION` |
+| Duplicate import is idempotent (re-processing the same call session in a second batch creates no duplicate `CdrRecord`/`CallMatch` rows) | ✅ **verified live**: seeded a lead+assignment, uploaded a one-row synthetic CDR file twice as two separate batches (same `cdrRecordId`, Yeastar's own call id, which is `@unique` on `CdrRecord` across the whole table) - after batch 1: 1 `CdrRecord`/1 `CallMatch`; after batch 2 (the P2002 catch path): still exactly 1 `CdrRecord`/1 `CallMatch`, match status unchanged (`MATCHED`) |
+| Ambiguous matches stay `AMBIGUOUS`, never silently resolved | 🚧 implemented (`matchCdrRecordToLead` returns `AMBIGUOUS` when more than one open assignment matches the same agent) but not yet exercised by a live or unit test with two genuinely overlapping assignments |
+| CDR timezone setting honored end-to-end (batch-configured source timezone, not assumed UTC/Cairo) | ✅ unit tested (`zonedWallTimeToUtc`/`parseCdrTimestamp` against both `Asia/Riyadh` and `Africa/Cairo`); live-verified indirectly (`sourceTimezone` defaults and is stored per-batch, confirmed in the match report response) |
+| Upload/preview large-file performance | ✅ **caught a real bug live**: naive per-row `create()` took 2.5+ minutes against the real file; fixed with chunked `createMany` - now ~16s |
+| Duplicate-batch-per-file rejected cleanly, not a raw 500 | ✅ unit tested (`imports.service.spec.ts`) + verified live |
+| Extension auto-registration on first sighting (`upsert`, not requiring pre-registration) | ✅ unit tested (`extension-mappings.service.spec.ts`) + verified live |
 
 A real fixture is already available for this:
 `docs/samples/yeastar_cdr_sample.xls` — confirmed in this session to contain

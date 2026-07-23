@@ -25,4 +25,12 @@ export class CreateBatchDto {
   @IsOptional()
   @IsEnum(LegacyAgentPreservationMode)
   legacyAgentMode?: LegacyAgentPreservationMode;
+
+  @ApiProperty({
+    required: false,
+    description: "IANA timezone the CDR 'Time' column is recorded in (CDR only). Defaults to the configured CDR_DEFAULT_SOURCE_TIMEZONE.",
+  })
+  @IsOptional()
+  @IsString()
+  sourceTimezone?: string;
 }

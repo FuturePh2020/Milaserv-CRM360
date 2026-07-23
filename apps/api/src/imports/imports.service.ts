@@ -17,6 +17,7 @@ import {
   ImportStatus,
   LeadType,
   LegacyAgentPreservationMode,
+  Prisma,
   UserRole,
 } from "@milaserv/database";
 import { findEmptyRequiredFields, findMissingRequiredColumns, hashRow, parseSpreadsheet } from "@milaserv/validation";
@@ -114,6 +115,13 @@ export class ImportsService {
       throw new BadRequestException("leadType is required for CASH and INSURANCE imports.");
     }
 
+    const existingBatch = await this.prisma.leadImportBatch.findUnique({ where: { fileId: dto.fileId } });
+    if (existingBatch) {
+      throw new ConflictException(
+        "A batch already exists for this uploaded file. Upload the file again to start a new batch.",
+      );
+    }
+
     const batch = await this.prisma.leadImportBatch.create({
       data: {
         sourceType: dto.sourceType,
@@ -125,6 +133,12 @@ export class ImportsService {
         status: ImportStatus.UPLOADED,
       },
     });
+
+    if (dto.sourceType === ImportSourceType.CDR) {
+      const sourceTimezone =
+        dto.sourceTimezone ?? this.configService.get<string>("cdr.defaultSourceTimezone") ?? "Asia/Riyadh";
+      await this.prisma.cdrImport.create({ data: { batchId: batch.id, sourceTimezone } });
+    }
 
     await this.auditService.record({
       actorId: actor.id,
@@ -162,6 +176,15 @@ export class ImportsService {
     await this.prisma.leadImportRow.deleteMany({ where: { batchId } });
     await this.prisma.leadImportError.deleteMany({ where: { batchId } });
 
+    // Bulk insert, not one create() per row: a real 65k-row CDR file took
+    // over two minutes with individual awaited inserts in this session's
+    // live testing (a real N+1 bug) versus a few seconds batched. Row ids
+    // are generated client-side so LeadImportError rows can reference their
+    // LeadImportRow without a round trip to read back generated ids
+    // (createMany does not return created rows).
+    const rowRecords: Prisma.LeadImportRowCreateManyInput[] = [];
+    const errorRecords: Prisma.LeadImportErrorCreateManyInput[] = [];
+
     for (let index = 0; index < rows.length; index++) {
       const sourceRowNumber = index + 2; // +1 for 1-indexing, +1 for the header row
       const row = rows[index];
@@ -177,30 +200,36 @@ export class ImportsService {
       if (isValid) validRows++;
       else invalidRows++;
 
-      const importRow = await this.prisma.leadImportRow.create({
-        data: {
-          batchId,
-          sourceRowNumber,
-          rawData: row as object,
-          isValid,
-          isDuplicate,
-        },
+      const rowId = randomUUID();
+      rowRecords.push({
+        id: rowId,
+        batchId,
+        sourceRowNumber,
+        rawData: row as Prisma.InputJsonValue,
+        isValid,
+        isDuplicate,
       });
 
       if (!isValid) {
         const errorMessage = isDuplicate
           ? "Duplicate row within this file."
           : `Missing required value(s): ${missingFields.join(", ")}`;
-        await this.prisma.leadImportError.create({
-          data: {
-            batchId,
-            rowId: importRow.id,
-            sourceRowNumber,
-            errorCode: isDuplicate ? "DUPLICATE_ROW" : "MISSING_REQUIRED_FIELD",
-            errorMessage,
-          },
+        errorRecords.push({
+          batchId,
+          rowId,
+          sourceRowNumber,
+          errorCode: isDuplicate ? "DUPLICATE_ROW" : "MISSING_REQUIRED_FIELD",
+          errorMessage,
         });
       }
+    }
+
+    const CHUNK_SIZE = 5000;
+    for (let i = 0; i < rowRecords.length; i += CHUNK_SIZE) {
+      await this.prisma.leadImportRow.createMany({ data: rowRecords.slice(i, i + CHUNK_SIZE) });
+    }
+    for (let i = 0; i < errorRecords.length; i += CHUNK_SIZE) {
+      await this.prisma.leadImportError.createMany({ data: errorRecords.slice(i, i + CHUNK_SIZE) });
     }
 
     const updatedBatch = await this.prisma.leadImportBatch.update({

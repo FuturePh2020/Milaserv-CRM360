@@ -72,6 +72,17 @@ describe("ImportsService", () => {
         service.createBatch(teamLeader as any, { fileId: "missing", sourceType: ImportSourceType.CDR } as any),
       ).rejects.toThrow(NotFoundException);
     });
+
+    it("refuses to create a second batch for a file that already has one", async () => {
+      // Real bug caught live: LeadImportBatch.fileId is unique (one batch per
+      // uploaded file), and reusing a fileId used to crash with an unhandled
+      // 500 instead of this clean conflict.
+      prisma.leadImportFile.findUnique.mockResolvedValue({ id: "f1" });
+      prisma.leadImportBatch.findUnique.mockResolvedValue({ id: "existing-batch", fileId: "f1" });
+      await expect(
+        service.createBatch(teamLeader as any, { fileId: "f1", sourceType: ImportSourceType.CDR } as any),
+      ).rejects.toThrow(ConflictException);
+    });
   });
 
   describe("generatePreview", () => {

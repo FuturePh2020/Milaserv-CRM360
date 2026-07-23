@@ -121,6 +121,10 @@ enum LegacyAgentPreservationMode {
 enum CallDirection {
   INBOUND
   OUTBOUND
+  // Agent-to-agent calls (real Yeastar "Communication Type" value). Never
+  // relevant to lead matching - staged for audit completeness, never
+  // promoted to CdrRecord/CallMatch.
+  INTERNAL
 }
 
 enum CallProviderStatus {
@@ -544,6 +548,7 @@ model Lead {
   notes            LeadNote[]
   importRows       LeadImportRow[]
   callAttempts     CallAttempt[]
+  callMatches      CallMatch[]
 
   @@index([type, status])
   @@index([batchId])
@@ -593,6 +598,7 @@ model LeadAssignment {
   createdAt           DateTime          @default(now()) @map("created_at")
 
   callAttempts CallAttempt[]
+  callMatches  CallMatch[]
 
   @@unique([activeLeadMarker])
   @@unique([activeAgentMarker])
@@ -708,7 +714,13 @@ model CdrStagingRecord {
   id                  String    @id @default(uuid())
   cdrImportId         String    @map("cdr_import_id")
   cdrImport           CdrImport @relation(fields: [cdrImportId], references: [id])
+  // NOT unique per row: a single call session (one cdrRecordId) can span
+  // multiple legs/rows (IVR -> transfer -> agent), each with different
+  // Call From/To and status - confirmed against the real sample file, where
+  // ~24% of call sessions have more than one leg (up to 7 legs observed).
+  // sourceRowNumber is the real per-row identity for staging/audit purposes.
   cdrRecordId         String    @map("cdr_record_id")
+  sourceRowNumber     Int       @map("source_row_number")
   rawRow              Json      @map("raw_row")
   callStartedAtSource String    @map("call_started_at_source")
   callFromRaw         String    @map("call_from_raw")
@@ -719,7 +731,8 @@ model CdrStagingRecord {
   processedAt         DateTime? @map("processed_at")
   createdAt           DateTime  @default(now()) @map("created_at")
 
-  @@unique([cdrImportId, cdrRecordId])
+  @@unique([cdrImportId, sourceRowNumber])
+  @@index([cdrImportId, cdrRecordId])
   @@index([customerPhoneNormalized])
   @@index([cdrImportId, isRelevant])
   @@map("cdr_staging_records")
@@ -773,6 +786,14 @@ model CallMatch {
   id             String          @id @default(uuid())
   callAttemptId  String?         @map("call_attempt_id")
   callAttempt    CallAttempt?    @relation(fields: [callAttemptId], references: [id])
+  // Nullable because an inbound call can match a lead/assignment with no
+  // Agent having ever clicked Call Customer (e.g. a customer calling back
+  // on their own) - the report still needs to say which lead this relates
+  // to (spec section 17), which callAttemptId alone cannot express.
+  leadId         String?         @map("lead_id")
+  lead           Lead?           @relation(fields: [leadId], references: [id])
+  assignmentId   String?         @map("assignment_id")
+  assignment     LeadAssignment? @relation(fields: [assignmentId], references: [id])
   cdrRecordId    String          @map("cdr_record_id")
   cdrRecord      CdrRecord       @relation(fields: [cdrRecordId], references: [id])
   status         CallMatchStatus
@@ -780,6 +801,8 @@ model CallMatch {
   createdAt      DateTime        @default(now()) @map("created_at")
 
   @@index([callAttemptId])
+  @@index([leadId])
+  @@index([assignmentId])
   @@index([cdrRecordId])
   @@index([status])
   @@map("call_matches")

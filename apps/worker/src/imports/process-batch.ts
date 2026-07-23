@@ -2,6 +2,7 @@ import { PrismaClient, ImportStatus, ImportSourceType } from "@milaserv/database
 import type { ImportDateFormat } from "@milaserv/validation";
 import { processCashRows } from "./cash.processor";
 import { processInsuranceRows } from "./insurance.processor";
+import { processCdrRows } from "./cdr.processor";
 
 const prisma = new PrismaClient();
 
@@ -9,8 +10,8 @@ const VALID_DATE_FORMATS: ImportDateFormat[] = ["DD/MM/YYYY", "MM/DD/YYYY", "YYY
 
 /**
  * Batch-processing step: Cash/Insurance batches are grouped into
- * Lead/LeadMedicationItem rows here (spec §8/§9); CDR batches are not yet
- * handled (Phase 9 owns CdrStagingRecord/CdrRecord population). Transitions
+ * Lead/LeadMedicationItem rows (spec §8/§9); CDR batches are staged and
+ * matched against lead assignments (spec §16). Transitions
  * QUEUED -> PROCESSING -> COMPLETED/COMPLETED_WITH_ERRORS/FAILED and is a
  * no-op if redelivered for a batch that already finished.
  */
@@ -65,11 +66,15 @@ export async function processBatch(batchId: string): Promise<void> {
     return;
   }
 
-  // CDR: staging/matching lands in Phase 9. For now, just close the batch out
-  // using the structural-validation counts from Phase 2.
-  const finalStatus = batch.invalidRows > 0 ? ImportStatus.COMPLETED_WITH_ERRORS : ImportStatus.COMPLETED;
-  await prisma.leadImportBatch.update({
-    where: { id: batchId },
-    data: { status: finalStatus, processedAt: new Date() },
-  });
+  if (batch.sourceType === ImportSourceType.CDR) {
+    await processCdrRows(prisma, batchId);
+
+    const totalErrors = await prisma.leadImportError.count({ where: { batchId } });
+    const finalStatus = totalErrors > 0 ? ImportStatus.COMPLETED_WITH_ERRORS : ImportStatus.COMPLETED;
+
+    await prisma.leadImportBatch.update({
+      where: { id: batchId },
+      data: { status: finalStatus, processedAt: new Date() },
+    });
+  }
 }

@@ -1,6 +1,6 @@
 # Implementation Status
 
-Last updated: 2026-07-23, end of Phase 8 (Phases 0-7 done in earlier passes
+Last updated: 2026-07-23, end of Phase 9 (Phases 0-8 done in earlier passes
 this same session).
 
 This file exists so nobody has to guess what's real. If something isn't
@@ -485,16 +485,137 @@ Not built:
   phone/national-id match is implemented.
 - No dedicated UI yet (`apps/web` still has only the login page).
 
-## Phases 9–12
+## Phase 9 — Yeastar CDR import and matching
 
-**Not started.** CDR matching, dashboards, branding polish, and the release
-checklist are all outstanding.
+**Status: Done and live-verified against both a synthetic multi-scenario
+fixture and the real 65,535-row `docs/samples/yeastar_cdr_sample.xls` file.
+Three real bugs were caught and fixed during this phase's live testing -
+none of them would have been caught by mocked unit tests alone.**
+
+- `packages/validation` additions: `parseCdrTimestamp`/`zonedWallTimeToUtc`
+  (`timezone.ts`) convert Yeastar's local "Time" column into a UTC instant
+  using the batch's configured source timezone (an Admin-configurable
+  setting per spec §16.4, defaulting to `Asia/Riyadh`), and
+  `parseCdrEndpoint` (`cdr-endpoint.ts`) classifies a raw "Call From"/"Call
+  To" value as a phone number, a named human extension, or a system
+  endpoint (IVR/Queue/Voicemail keyword match). 13 new unit tests.
+- `apps/worker/src/imports/cdr.processor.ts`: stages every structurally
+  valid row into `CdrStagingRecord`, marks a row `isRelevant` via a single
+  indexed join against `Person.phoneNormalized` (never an in-memory "all
+  leads x all rows" loop), then - **critically** - groups staging rows by
+  `cdrRecordId` (one real call *session*, which can span several staged
+  *legs*: IVR → transfer → agent) before building one `CdrRecord` per
+  session and running it through `matchCdrRecordToLead`. That function
+  implements the full match-status decision tree from spec §16.2:
+  `NOT_MATCHED` (no lead, or only a system endpoint was ever reached),
+  `UNMAPPED_EXTENSION` (reached a human extension with no
+  `ExtensionMapping` yet), `MATCHED` (exactly one open `LeadAssignment`
+  covers this agent and this call's timestamp), `AMBIGUOUS` (more than one
+  does), `AGENT_MISMATCH` (an assignment was open, but for a different
+  agent than the one this call reached), `OUTSIDE_ASSIGNMENT_WINDOW` (no
+  assignment covers the timestamp at all).
+- `apps/api/src/extension-mappings`: `GET /extension-mappings` (Team
+  Leader/Shift Supervisor) lists every extension the CDR pipeline has ever
+  seen (auto-created on first sighting via `upsert`, so an Admin doesn't
+  have to pre-register every extension before any CDR file can be
+  processed); `PATCH /extension-mappings/:extension` (Team Leader only)
+  assigns it to a user.
+- `apps/api/src/cdr`: `GET /imports/batches/:id/cdr-report` (Team
+  Leader/Shift Supervisor) returns the end-of-day CDR match report per
+  spec §17 - per-row match status, matched lead/agent, and summary counts.
+- **Three real bugs caught and fixed via live testing against the actual
+  sample file, in addition to the existing mocked unit test suite**:
+  1. **Duplicate-batch-per-file 500**: `LeadImportBatch.fileId` is
+     `@unique`, but creating a second batch against an already-used
+     `fileId` crashed with an unhandled `500` instead of a clean error.
+     Fixed with a pre-check in `createBatch` that throws a
+     `ConflictException` ("Upload the file again to start a new batch."),
+     with a regression test.
+  2. **N+1 performance bug in `generatePreview`**: one `await
+     prisma.leadImportRow.create()` per row, in a loop, took **over 2.5
+     minutes** against the real 65,535-row file. Rewritten to bulk
+     `createMany` (client-generated row ids, chunked in batches of 5,000)
+     - the same file now previews in **~16 seconds**, a ~9x speedup with
+     identical row counts.
+  3. **Multi-leg data loss (the significant one)**: the original schema
+     treated `cdrRecordId` as unique per staging row
+     (`@@unique([cdrImportId, cdrRecordId])`, `skipDuplicates: true`). A
+     direct Python inspection of the real sample file's raw rows found
+     that Yeastar records **one row per call leg**, and 8,561 of 35,891
+     distinct call sessions have 2-7 legs (IVR → transfer → agent) sharing
+     one `cdrRecordId` - 38,205 rows, ~58% of all valid rows. The original
+     code silently discarded every leg after the first, which both lost
+     data and meant only the *first* leg of any multi-leg call (often the
+     IVR, never the connecting agent) could ever be matched - the exact
+     opposite of spec §16.2's "final connected human endpoint...transfer
+     chain or final leg" requirement for inbound calls. Fixed by migration
+     `20260723185141_cdr_staging_multi_leg_fix` (changes the unique
+     constraint to `(cdrImportId, sourceRowNumber)`, adds
+     `sourceRowNumber`) and a full rewrite of `cdr.processor.ts` to group
+     legs by session, sum call/ring/talk durations across legs, and derive
+     the correct final agent endpoint (last non-system leg for inbound
+     calls, first leg for outbound).
+  4. **Timestamp parsing rejected ~23% of real rows**: `parseCdrTimestamp`'s
+     regex assumed the Yeastar "Time" column never includes seconds
+     (`"8/2/2026 13:32"`). Re-running the real file after the multi-leg fix
+     showed 15,009 of 65,526 valid rows (23%) failing with
+     `CDR_PARSE_FAILED` - inspecting the actual failing values found the
+     same column also appears as `"13/02/2026 16:16:36"` (seconds
+     included) elsewhere in the same file. Fixed by making the seconds
+     group optional in the regex and threading it through
+     `zonedWallTimeToUtc` (which already accepted whole seconds in its
+     `Date.UTC` call, just never received any). Re-ran the real file after
+     the fix: **0 `CDR_PARSE_FAILED` rows** (previously 15,009); all 65,526
+     valid rows now stage correctly across the correct 35,891 distinct
+     call sessions (matching the independent Python count).
+- **Live end-to-end verification, this session**:
+  - A synthetic 4-row fixture (`Take Lead` by a real agent + a pre-mapped
+    extension → `MATCHED`; a call that only reached an IVR → `NOT_MATCHED`;
+    a call to an unmapped extension → `UNMAPPED_EXTENSION`; an unrelated
+    phone number → never promoted past staging) passed both before and
+    after the multi-leg rewrite and the timestamp fix, confirming neither
+    change regressed single-leg matching.
+  - The real 65,535-row file: preview in ~16s (65,526 valid / 9 invalid /
+    9 duplicate, unchanged throughout all fixes), full batch processing in
+    ~78s, final state after all fixes: 65,526 rows staged (0 parse
+    failures), 35,891 distinct call sessions grouped correctly. (0 of
+    those sessions matched an actual `Lead` in this test database, which
+    is expected - the real Yeastar sample's customer numbers have no
+    reason to correlate with this session's synthetic test leads; the
+    verification target here was the staging/grouping/parsing pipeline,
+    not real matches.)
+  - Duplicate-import idempotency (spec-required test): seeded a lead with
+    an open assignment, uploaded a one-row synthetic CDR fixture as batch
+    1 (→ 1 `CdrRecord`/1 `CallMatch`, status `MATCHED`), then uploaded the
+    *same call session* (same Yeastar `cdrRecordId`, which is `@unique` on
+    `CdrRecord`) again as an entirely separate batch 2. Confirmed the P2002
+    catch path fired and the final state was still exactly 1
+    `CdrRecord`/1 `CallMatch` - re-processing the same real-world call
+    twice (e.g. an Admin re-exporting an overlapping date range) cannot
+    double-count it.
+
+Not built yet:
+
+- No scheduler/cron to auto-run the end-of-day CDR report - it's a
+  pull-based `GET` endpoint today, per Phase 4's note that no
+  cron/scheduler infrastructure exists yet (tracked for Phase 12).
+- No web UI for uploading a CDR file, reviewing the extension-mapping
+  list, or viewing the match report - `apps/web` still has only the login
+  page.
+- No endpoint to edit/revoke an existing `ExtensionMapping` once assigned,
+  or to mark one `isSystem` after the fact if the keyword heuristic
+  misclassifies a real extension.
+
+## Phases 10–12
+
+**Not started.** Dashboards/reports, branding/UX polish, and the security/
+performance/release-readiness checklist are all outstanding.
 
 ## Quality gates, as of this update
 
 ```
-pnpm --filter @milaserv/validation test    # 45/45 passing
-pnpm --filter @milaserv/api test           # 59/59 passing (auth + imports + sessions + devices + leads + dispositions + search)
+pnpm --filter @milaserv/validation test    # 56/56 passing
+pnpm --filter @milaserv/api test           # 63/63 passing (auth + imports + sessions + devices + leads + dispositions + search + extension-mappings)
 pnpm --filter @milaserv/worker test        # 0 tests (processors verified via live integration testing instead - see above)
 cd packages/database && prisma validate    # valid
 cd apps/api && tsc --noEmit                # clean
@@ -503,6 +624,17 @@ cd apps/web && tsc --noEmit                # clean
 cd apps/api && nest build                  # clean
 cd apps/worker && tsc -p tsconfig.json     # clean
 ```
+
+`eslint` could not be run this session - the repo has no `eslint.config.js`
+(ESLint 10 requires the flat-config format; the `.eslintrc.*` migration
+hasn't been done). This is a pre-existing gap from earlier phases, not
+something Phase 9 introduced; it should be fixed before relying on
+`pnpm lint` for anything.
+
+`pnpm lint` across every package and a full `docker compose build` have not
+been run yet in this session — the latter is expected to fail in this
+sandbox specifically (no container-registry access, see Phase 0 notes), not
+necessarily elsewhere.
 
 `pnpm lint` across every package and a full `docker compose build` have not
 been run yet in this session — the latter is expected to fail in this

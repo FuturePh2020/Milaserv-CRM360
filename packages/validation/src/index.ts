@@ -6,3 +6,4 @@ export * from "./import-columns";
 export * from "./cash-legacy-status";
 export * from "./grouping-keys";
 export * from "./timezone";
+export * from "./cdr-endpoint";
