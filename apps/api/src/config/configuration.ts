@@ -29,4 +29,11 @@ export default () => ({
   cdr: {
     defaultSourceTimezone: process.env.CDR_DEFAULT_SOURCE_TIMEZONE ?? "Asia/Riyadh",
   },
+  dashboards: {
+    // Spec 18.1 calls for an "Agents over break allowance" card but never states
+    // the actual threshold - this default is a placeholder pending a Team Leader
+    // decision, not a value taken from the spec.
+    breakAllowanceMinutes: Number(process.env.DASHBOARD_BREAK_ALLOWANCE_MINUTES ?? 60),
+    overviewCacheTtlSeconds: Number(process.env.DASHBOARD_OVERVIEW_CACHE_TTL_SECONDS ?? 10),
+  },
 });

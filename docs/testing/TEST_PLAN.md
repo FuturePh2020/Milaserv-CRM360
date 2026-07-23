@@ -169,6 +169,38 @@ the expected columns (`ID, Time, Call From, Call To, ...`) and IVR/Queue
 labels (e.g. `IVR Duty Hours - AR_EN<6234>`) plus human agent labels
 (e.g. `Abdelmagied Ali<7033>`), matching the direction-aware parsing rule.
 
+## Dashboards and reports (Phase 10)
+
+RBAC/scoping unit tests live in `apps/api/src/dashboards/dashboards.service.spec.ts`
+(9 tests). Aggregation correctness was verified live against the real
+accumulated data from every prior phase's testing in this session (55+
+synthetic Agents/leads, real Cash/Insurance leads, real dispositions,
+real CDR matches) - a mocked Prisma client cannot prove multi-table
+aggregate correctness or genuine query-count-at-scale behavior.
+
+| Test | Status |
+|---|---|
+| Agent blocked from every admin dashboard/report endpoint (403) | ✅ unit tested + **verified live** (`GET /dashboards/overview` with an Agent JWT → `403`) |
+| Team Leader can view all teams; Shift Supervisor forced to their own regardless of a requested `teamId` | ✅ unit tested (assertion on the actual Prisma query args) + **verified live**: a dedicated Shift Supervisor/Agent/Team seeded for this check showed `activeAgents: 1` (their own team only) vs. the Team Leader's `68`, and passing a different `teamId` in the query string had no effect |
+| An Agent can only ever see their own daily stats, never another Agent's (no `agentId` parameter exists on `/dashboards/me/daily` at all) | ✅ unit tested + verified live |
+| Overview cards (§18.1): active/manual-break/idle-break Agent counts, total/completed/remaining leads + completion %, contacted leads, verified calls, leads with no verified call, orders created, Agents over break allowance | ✅ **verified live** against real accumulated data - cross-checked that `completedLeads + remainingLeads == totalUploadedLeads` and the completion percentage matched |
+| Cash/Insurance summary (§18.2): totals, per-status breakdown, completion %, orders created, converted count, all ten exact disposition counters | ✅ **verified live**: `available + assigned + completed == total` held exactly against real data |
+| Agent performance (§18.3): every listed field, computed for every Agent in scope with a fixed small number of aggregate queries (never one query per Agent) | ✅ **verified live** across 68 real synthetic Agents in a single request; spot-checked one Agent's `leadsTakenFromSearch`/`cashCount`/`currentActiveLeadId` against known Phase 6 test data |
+| Converted Leads report (§18.4): masked phone/identity, unmasked customer name, agent, contact time, external order number, conversion timestamp, CDR verification, provider status, batch, partner | ✅ **verified live** against a real converted lead from Phase 7's testing |
+| Converted Leads CSV export | ✅ verified live |
+| Real-time overview via SSE (spec 19), correct `text/event-stream` headers, immediate first payload | ✅ verified live (`curl -N`, inspected response headers and first `data:` frame) |
+| Dashboard counters cached for a short TTL, not recomputed on every request (spec 20) | ✅ implemented (in-memory, per-instance); 🚧 not yet load-tested for actual query-reduction under concurrent polling |
+| Ambiguous CDR matches surfaced distinctly in reports, not silently merged into another status | 🚧 not yet exercised - no live data has an `AMBIGUOUS` `CallMatch` row in this session's test data |
+
+Not yet built (see `docs/implementation/IMPLEMENTATION_STATUS.md`):
+
+- No web UI - every check above was done via direct API calls (curl), not
+  through a browser.
+- CSV export for Overview/Leads Summary/Agent Performance (only Converted
+  Leads has one).
+- Monthly Attendance report endpoint; Audit Log listing endpoint.
+- Shift-Supervisor "broader access" grant mechanism.
+
 ## Idle break (Phase 5)
 
 | Test | Location | Status |

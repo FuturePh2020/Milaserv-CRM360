@@ -1,6 +1,6 @@
 # Implementation Status
 
-Last updated: 2026-07-23, end of Phase 9 (Phases 0-8 done in earlier passes
+Last updated: 2026-07-23, end of Phase 10 (Phases 0-9 done in earlier passes
 this same session).
 
 This file exists so nobody has to guess what's real. If something isn't
@@ -606,16 +606,117 @@ Not built yet:
   or to mark one `isSystem` after the fact if the keyword heuristic
   misclassifies a real extension.
 
-## Phases 10–12
+## Phase 10 — Dashboards and reports
 
-**Not started.** Dashboards/reports, branding/UX polish, and the security/
-performance/release-readiness checklist are all outstanding.
+**Status: Backend done and live-verified against real accumulated data from
+every prior phase's testing. No web UI yet - `apps/web` still has only the
+login page (this is the single biggest gap in this phase; see below).**
+
+- `apps/api/src/dashboards/dashboards.service.ts` implements the four report
+  shapes from spec §18, each accepting the shared `DashboardFilterDto`
+  (date/range, team, shift, agent, lead type, partner, batch, disposition,
+  call verification status - not every field applies to every endpoint,
+  documented per-method):
+  - `GET /dashboards/overview` (§18.1): active/on-manual-break/on-idle-break
+    Agent counts, total/completed/remaining leads + completion %, contacted
+    leads, CDR-verified calls, leads with no verified call, orders created,
+    Agents over break allowance. Cached in-memory for a short configurable
+    TTL (`DASHBOARD_OVERVIEW_CACHE_TTL_SECONDS`, default 10s) per spec §20's
+    "caching for dashboard counters" - **per-API-instance only**, flagged
+    for a shared (Redis) cache before running more than one API replica.
+  - `GET /dashboards/overview/stream` (spec §19): the same payload pushed
+    over Server-Sent Events every 15 seconds - the real-time half of "SSE
+    ... 15-second polling fallback" (the plain `GET /overview` endpoint above
+    *is* the polling fallback).
+  - `GET /dashboards/leads-summary?leadType=CASH|INSURANCE` (§18.2): total/
+    available/assigned/pending-call/customer-contacted/callback-eligible/
+    follow-up-scheduled/completed/remaining/completion %/orders created/
+    converted count, plus the exact ten disposition counters from the spec
+    (they fall directly out of `DispositionType`, one enum value each).
+  - `GET /dashboards/agent-performance` (§18.3): every field the spec lists
+    (session span, work/break/manual/idle seconds and break count - reusing
+    `AttendanceDay`'s existing daily rollup rather than recomputing it;
+    leads generated/taken-from-search/contacted/completed, calls initiated,
+    CDR-verified calls, orders created, per-disposition counts, Cash/
+    Insurance split, current active lead, last activity) computed for every
+    Agent in scope with a **fixed, small number of aggregate queries**
+    (`groupBy`/raw `COUNT...GROUP BY`), never one query per Agent - this
+    matters because spec §20 explicitly designs for 200+ users.
+  - `GET /dashboards/me/daily` (nav "My Daily Results", spec §3.2): an Agent's
+    own subset of the same computation, for today by default. Always
+    computed from the caller's own id - there is no `agentId` parameter on
+    this route at all, so an Agent cannot request another Agent's stats by
+    constructing a query string (verified live: an Agent's JWT hitting
+    `/dashboards/overview` gets a clean `403`, and `/me/daily` always
+    returns their own row).
+  - `GET /dashboards/converted-leads` + `GET /dashboards/converted-leads/export`
+    (§18.4, CSV): every listed field (masked phone/identity, unmasked
+    customer name - same convention as Leads Search in Phase 8 - Agent,
+    contact time, external order number, conversion timestamp, CDR
+    verification, provider last status, batch, partner), paginated.
+- **Team scoping enforced in the backend, not the frontend** (CLAUDE.md rule
+  1): a Team Leader may query any team or none (all); a Shift Supervisor is
+  unconditionally forced to their own team - **verified live** that passing
+  a different `teamId` in the query string to a Shift Supervisor's token
+  has no effect (their overview still reports only their own team's 1
+  active Agent, not the Team Leader's 68).
+- 9 unit tests (`dashboards.service.spec.ts`) covering RBAC (Agent blocked
+  from every admin report, Team Leader/Shift Supervisor allowed) and the
+  team-scope-forcing behavior via assertions on the actual Prisma call
+  arguments.
+- **Live end-to-end verification, this session**, against the real
+  accumulated data from every prior phase's live testing in this same
+  Postgres instance (55+ synthetic Agents/leads from Phase 6, real Cash/
+  Insurance leads from Phase 3, real dispositions from Phase 7, etc.):
+  every endpoint above returned correct, cross-checked numbers (e.g.
+  `leads-summary?leadType=CASH`'s `available + assigned + completed` summed
+  exactly to `total`); the SSE stream returned a correctly-headered
+  (`Content-Type: text/event-stream`) payload immediately on connect; a
+  dedicated Shift Supervisor + Agent + Team seeded specifically for this
+  check confirmed the team-scoping behavior described above, then was
+  cleaned up.
+
+Known gaps, flagged rather than silently assumed complete:
+
+- **No web UI.** The entire 16-item Admin navigation and 9-item Agent
+  navigation from spec §3 (Overview, Live Shift Monitor, Cash/Insurance
+  Leads pages, Sessions & Breaks, Monthly Attendance, CDR Matching Reports,
+  Users & Shifts, Import History, Audit Log, Settings, etc.) does not exist
+  yet - `apps/web` is still only a login page. This phase built the
+  backend contract those pages will call; Phase 11 ("Branding and UX") is
+  where the actual pages, palette, and navigation shell get built.
+- **"Agents over break allowance" has no spec-given threshold.** Spec §18.1
+  lists the card but never states the number. Implemented as a configurable
+  default (`DASHBOARD_BREAK_ALLOWANCE_MINUTES`, currently 60) pending a
+  Team Leader decision - flagged in `.env.example`, not silently guessed.
+- **CSV export only exists for Converted Leads.** Spec's Admin permissions
+  say "Export reports" generally; Overview/Leads Summary/Agent Performance
+  have no export endpoint yet.
+- **No Shift-Supervisor "broader access" grant mechanism.** Spec §2.1 allows
+  a Shift Supervisor to be "explicitly granted broader access" beyond their
+  team; nothing in the schema/permission model represents this yet (same
+  gap as the still-unused `TeamScopeGuard` flagged in Phase 1).
+- **Monthly Attendance report (nav item 10)** is not a separate endpoint -
+  `AttendanceDay` rows already exist per-agent-per-day (Phase 4) but there's
+  no aggregated monthly rollup/report endpoint yet.
+- **Audit Log viewing endpoint (nav item 15)** does not exist yet - `AuditLog`
+  rows are written throughout (every phase), but there's no `GET` to list/
+  filter them.
+- The in-memory overview cache is a single-process optimization only; it
+  would silently under-cache (fine) but never over-serve stale data across
+  replicas incorrectly, since each replica just re-computes independently -
+  still flagged because a shared cache is the more scalable long-term fix.
+
+## Phases 11–12
+
+**Not started.** Branding/UX polish and the security/performance/release-
+readiness checklist are all outstanding.
 
 ## Quality gates, as of this update
 
 ```
 pnpm --filter @milaserv/validation test    # 56/56 passing
-pnpm --filter @milaserv/api test           # 63/63 passing (auth + imports + sessions + devices + leads + dispositions + search + extension-mappings)
+pnpm --filter @milaserv/api test           # 72/72 passing (auth + imports + sessions + devices + leads + dispositions + search + extension-mappings + dashboards)
 pnpm --filter @milaserv/worker test        # 0 tests (processors verified via live integration testing instead - see above)
 cd packages/database && prisma validate    # valid
 cd apps/api && tsc --noEmit                # clean
