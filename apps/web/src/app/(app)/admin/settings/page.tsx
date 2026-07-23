@@ -13,6 +13,7 @@ interface SettingRow {
 const SETTING_LABELS: Record<string, string> = {
   cdrDefaultSourceTimezone: "CDR Default Source Timezone",
   dashboardBreakAllowanceMinutes: "Break Allowance (minutes)",
+  browserIdleThresholdSeconds: "Browser Activity Idle Threshold (seconds)",
 };
 
 export default function SettingsPage() {

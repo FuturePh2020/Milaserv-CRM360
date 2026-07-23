@@ -292,17 +292,27 @@ against the spec's 15-point checklist) and
 | Load testing at the spec's full "200+ users" target | 🚧 not performed - only smoke-tested at 9-55 concurrent requests (this session's practical ceiling for interactively seeding/cleaning up synthetic accounts) |
 | Team-scoping for imports/CDR/extension-mappings | 🚧 **documented gap, not fixed** - any Team Leader/Shift Supervisor can view any import batch/CDR report regardless of team, since `LeadImportBatch`/`CdrImport` have no `teamId` in the schema. Flagged as a product decision, not silently left unaddressed |
 
-## Idle break (Phase 5)
+## Idle break / browser-based activity tracking (Phase 5, re-architected)
+
+**Superseded design, called out explicitly**: `apps/activity-agent` (the
+.NET Windows companion) has been removed. Idle detection is now
+browser-based - see "Architecture change" in
+`docs/implementation/IMPLEMENTATION_STATUS.md` and CLAUDE.md rule 3 for the
+full rationale and the accepted limitation (a browser tab cannot see
+activity outside itself).
 
 | Test | Location | Status |
 |---|---|---|
-| Exact threshold behavior: last activity 10:00, threshold detected 10:05, recorded break start 10:00, resumes 10:12, duration 12 minutes | `apps/api/src/devices/devices.service.spec.ts` | ✅ unit tested with the literal spec example, and live-verified end-to-end with real timestamps (see `docs/implementation/IMPLEMENTATION_STATUS.md`) |
+| Exact threshold behavior: last activity 10:00, threshold detected 10:05, recorded break start 10:00, resumes 10:12, duration 12 minutes | `apps/api/src/activity/activity.service.spec.ts` | ✅ unit tested with the literal spec example |
 | Idle break start time is the last-activity timestamp, not the detection time | same | ✅ |
 | Idle detection does not fire while on an explicit manual break | same | ✅ |
 | Repeated "still idle" heartbeats do not open a second idle break | same | ✅ |
-| Device token cannot authenticate a normal user endpoint | manual, this session (`GET /users` with a device token → `401`) | ✅ |
-| Device registration refuses to hijack another user's active device | `devices.service.spec.ts` | ✅ |
-| The .NET companion itself (Win32 idle detection, real heartbeat loop against a live API) | — | 🚧 **not verified anywhere** - no Windows/.NET SDK available in this sandbox |
+| Admin can disable tracking per-Agent; a disabled Agent's heartbeats are silently ignored | same | ✅ |
+| Settings' `browserIdleThresholdSeconds` overrides the env-var default | same | ✅ |
+| `GET /activity/status` reports the effective enabled flag + threshold | same | ✅ |
+| Browser tracker mounts for Agent role only, calls `/activity/status` on load | manual, this session (Playwright) | ✅ verified live, zero console/page errors |
+| Admin per-Agent toggle (Users & Shifts) and threshold field (Settings) render and are wired to the real endpoints | manual, this session (Playwright) | ✅ verified live |
+| Full heartbeat POST loop click-through in a real browser (mousemove → idle break created/closed) | — | 🚧 not separately re-verified this pass - reuses the already-proven idle-break state machine; only the auth path and enable/disable gate are new, both unit-tested |
 
 ## Running what exists today
 

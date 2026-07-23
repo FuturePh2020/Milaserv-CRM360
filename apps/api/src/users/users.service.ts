@@ -15,6 +15,7 @@ const SAFE_USER_SELECT = {
   role: true,
   status: true,
   teamId: true,
+  activityTrackingEnabled: true,
   lastLoginAt: true,
   createdAt: true,
   updatedAt: true,

@@ -21,9 +21,18 @@ prior "Milaserv 360" repository.
    concurrency-safe — use a DB transaction with row locking
    (`SELECT ... FOR UPDATE SKIP LOCKED` or an equivalent conditional update).
    Never rely on frontend state or the 15-second refresh as a lock.
-3. A normal browser tab cannot detect device-wide idle. Idle detection is the
-   job of `apps/activity-agent` (Windows companion) reporting to a heartbeat
-   API — do not fake this in the web app.
+3. **Architecture change, superseding the original spec's Windows-companion
+   design**: idle/activity detection is now browser-based, not a device-wide
+   Windows companion. A browser tab genuinely cannot see activity outside
+   itself — this is a real, accepted product limitation (an Agent idle in
+   another application with the CRM360 tab merely open in the background
+   reads as idle), not something to paper over. Track it honestly:
+   `docs/architecture/ARCHITECTURE.md` documents the limitation explicitly,
+   and the UI must never imply device-wide coverage it doesn't have. Admin
+   controls the global inactivity threshold and can enable/disable tracking
+   per Agent. There is no `apps/activity-agent` in this codebase anymore —
+   do not reintroduce a Windows-companion path without an equally explicit,
+   called-out architecture decision to revert this one.
 4. Preserve raw imported values alongside normalized values. Never treat long
    identifiers (claim IDs, invoice numbers, national IDs, UPC codes) as
    numbers — always strings.
@@ -60,6 +69,3 @@ prior "Milaserv 360" repository.
   what changed, and update `docs/implementation/IMPLEMENTATION_STATUS.md`
   honestly — do not mark something done if tests or build are failing.
 - Prefer extending existing modules over introducing parallel patterns.
-- The `.NET` activity companion can only be built/run on Windows. If you
-  cannot verify it compiles in your environment, say so explicitly rather
-  than claiming it builds.

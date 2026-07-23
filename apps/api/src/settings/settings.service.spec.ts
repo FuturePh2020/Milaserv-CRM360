@@ -18,7 +18,11 @@ describe("SettingsService", () => {
     it("returns every known key even when no row exists yet", async () => {
       prisma.systemSetting.findMany.mockResolvedValue([]);
       const result = await service.list();
-      expect(result.map((r) => r.key)).toEqual(["cdrDefaultSourceTimezone", "dashboardBreakAllowanceMinutes"]);
+      expect(result.map((r) => r.key)).toEqual([
+        "cdrDefaultSourceTimezone",
+        "dashboardBreakAllowanceMinutes",
+        "browserIdleThresholdSeconds",
+      ]);
       expect(result.every((r) => r.value === null)).toBe(true);
     });
 

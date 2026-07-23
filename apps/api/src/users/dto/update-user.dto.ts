@@ -1,5 +1,5 @@
 import { ApiProperty } from "@nestjs/swagger";
-import { IsEnum, IsOptional, IsString, IsUUID } from "class-validator";
+import { IsBoolean, IsEnum, IsOptional, IsString, IsUUID } from "class-validator";
 import { UserRole, UserStatus } from "@milaserv/database";
 
 export class UpdateUserDto {
@@ -22,4 +22,9 @@ export class UpdateUserDto {
   @IsOptional()
   @IsUUID()
   teamId?: string;
+
+  @ApiProperty({ required: false, description: "Admin control for the browser-based activity tracker (CLAUDE.md rule 3)" })
+  @IsOptional()
+  @IsBoolean()
+  activityTrackingEnabled?: boolean;
 }

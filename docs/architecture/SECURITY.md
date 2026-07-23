@@ -11,8 +11,9 @@
    `JwtAuthGuard` and `RolesGuard` are global `APP_GUARD`s
    (`apps/api/src/app.module.ts`); every controller applies `@Roles(...)`
    or is explicitly `@Public()`. Public routes are limited to `GET /health`,
-   `POST /auth/login`, `POST /auth/refresh`, and `POST /devices/heartbeat`
-   (guarded instead by the separate `DeviceAuthGuard`). `role`/`teamId` are
+   `POST /auth/login`, and `POST /auth/refresh` - the browser-based activity
+   tracker's `GET /activity/status`/`POST /activity/heartbeat` use the
+   Agent's normal JWT, not a separate public/device auth path. `role`/`teamId` are
    re-read from the database on every request (`JwtStrategy.validate` →
    `AuthService.validateUserById`), not trusted from JWT claims - a stale or
    tampered token can't preserve access after a role change or
@@ -105,13 +106,15 @@
     `Strict-Transport-Security` and other security headers by default.
     Actual TLS termination is a deployment/reverse-proxy concern outside
     this repo.
-13. **Secure companion heartbeat authentication - SATISFIED.**
-    `DeviceAuthGuard` requires a `Device <token>` header, hashes it with
-    SHA-256, and looks up an active, non-revoked `DeviceRegistration` - the
-    raw token is never stored, only its hash. Registration requires a
-    normal Agent JWT first and refuses to hijack another user's active
-    device. Heartbeat payload is contract-limited to device id/activity
-    timestamp/idle duration/companion version.
+13. **Secure activity-heartbeat authentication - SATISFIED, architecture
+    changed.** The browser-based tracker (superseding the Windows-companion
+    design, CLAUDE.md rule 3) authenticates `POST /activity/heartbeat` with
+    the Agent's own JWT under the standard `RolesGuard`/`@Roles(AGENT)` -
+    there is no separate device-token flow to secure. Heartbeat payload is
+    contract-limited to last-activity timestamp and idle duration only; no
+    keystrokes, screenshots, URLs, or window/tab titles are ever collected.
+    An Admin per-Agent `activityTrackingEnabled` flag can disable tracking
+    entirely for a given user.
 14. **Do not log medical data unnecessarily - SATISFIED.** No
     `Logger`/`console.log` calls exist in `apps/api/src` except the
     startup banner; no request-body-logging interceptor exists. Audit

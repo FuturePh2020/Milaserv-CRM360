@@ -11,7 +11,7 @@ import { TeamsModule } from "./teams/teams.module";
 import { ShiftsModule } from "./shifts/shifts.module";
 import { ImportsModule } from "./imports/imports.module";
 import { SessionsModule } from "./sessions/sessions.module";
-import { DevicesModule } from "./devices/devices.module";
+import { ActivityModule } from "./activity/activity.module";
 import { LeadsModule } from "./leads/leads.module";
 import { DispositionsModule } from "./dispositions/dispositions.module";
 import { SearchModule } from "./search/search.module";
@@ -35,7 +35,7 @@ import { RolesGuard } from "./common/guards/roles.guard";
     ShiftsModule,
     ImportsModule,
     SessionsModule,
-    DevicesModule,
+    ActivityModule,
     LeadsModule,
     DispositionsModule,
     SearchModule,

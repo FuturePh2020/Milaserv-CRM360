@@ -10,6 +10,7 @@ import { AuthenticatedUser } from "../auth/types/authenticated-user";
 export const KNOWN_SETTING_KEYS = [
   "cdrDefaultSourceTimezone",
   "dashboardBreakAllowanceMinutes",
+  "browserIdleThresholdSeconds",
 ] as const;
 
 @Injectable()

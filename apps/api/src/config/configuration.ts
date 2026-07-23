@@ -22,9 +22,11 @@ export default () => ({
     storagePath: process.env.UPLOAD_STORAGE_PATH ?? "./storage/uploads",
     allowedMimeTypes: (process.env.UPLOAD_ALLOWED_MIME_TYPES ?? "").split(",").filter(Boolean),
   },
-  device: {
-    tokenSecret: process.env.DEVICE_TOKEN_SECRET,
-    idleBreakThresholdSeconds: Number(process.env.IDLE_BREAK_THRESHOLD_SECONDS ?? 300),
+  activity: {
+    // Env-var fallback only - the effective threshold is Admin-configurable
+    // at runtime via Settings (browserIdleThresholdSeconds), see
+    // ActivityService.getThresholdSeconds.
+    idleBreakThresholdSecondsDefault: Number(process.env.IDLE_BREAK_THRESHOLD_SECONDS ?? 300),
   },
   cdr: {
     defaultSourceTimezone: process.env.CDR_DEFAULT_SOURCE_TIMEZONE ?? "Asia/Riyadh",

@@ -6,6 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { apiFetch } from "../lib/api-client";
 import { clearSession, getSessionUser, type SessionUser } from "../lib/auth";
+import { ActivityTracker } from "./ActivityTracker";
 
 interface NavItem {
   label: string;
@@ -113,6 +114,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex min-h-screen bg-app-bg">
+      {user.role === "AGENT" && <ActivityTracker />}
       <a
         href="#main-content"
         className="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:m-2 focus:rounded-md focus:bg-white focus:p-2 focus:text-navy"

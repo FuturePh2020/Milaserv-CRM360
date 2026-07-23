@@ -17,7 +17,8 @@ outstanding right now.
 - **API**: NestJS, TypeScript, REST + Swagger, WebSocket/SSE
 - **Database**: PostgreSQL via Prisma ORM
 - **Background jobs**: Redis + BullMQ
-- **Activity companion**: .NET Windows console app (device-wide idle detection)
+- **Activity tracking**: browser-based (tab focus + interaction heartbeats),
+  Admin-configurable per Agent - see the note below
 - **Infra**: Docker Compose for local/staging
 
 ## Monorepo layout
@@ -27,7 +28,6 @@ apps/
   web/              Next.js frontend (Admin + Agent dashboards)
   api/              NestJS REST API
   worker/           BullMQ background workers (imports, CDR matching)
-  activity-agent/   Windows companion (idle detection, heartbeats)
 packages/
   database/         Prisma schema, migrations, generated client
   contracts/        Shared enums/types/brand tokens (no server deps)
@@ -36,6 +36,19 @@ packages/
   config/           Shared tsconfig bases
 docs/               Specifications, architecture, implementation, deployment, testing, release docs
 ```
+
+## Activity tracking
+
+Idle detection is browser-based: a tracker running in the Agent's active tab
+resets an idle timer on any interaction (mouse/keyboard/scroll/touch) and
+reports idle duration to the API on a heartbeat. This is a deliberate
+architecture decision (superseding the earlier Windows-companion design) -
+**it can only see activity within the browser tab**, not the whole device.
+An Agent active in another application with the CRM360 tab merely open in
+the background will still be reported as idle. Admins can enable/disable
+tracking per Agent and set the global inactivity threshold from Settings.
+See `docs/architecture/ARCHITECTURE.md` for the full rationale and
+limitation.
 
 ## Getting started (local development)
 

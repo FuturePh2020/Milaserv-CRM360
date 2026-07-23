@@ -6,20 +6,17 @@
 ┌─────────────┐      HTTPS/WS       ┌──────────────┐
 │  apps/web   │ ──────────────────▶ │   apps/api   │
 │  (Next.js)  │ ◀────────────────── │  (NestJS)    │
-└─────────────┘   REST + SSE/WS     └──────┬───────┘
-                                            │
+│             │   REST + SSE/WS     └──────┬───────┘
+│  in-tab     │   heartbeats              │
+│  activity   │───────────────────────────▶│
+│  tracker    │                            │
+└─────────────┘                            │
                              ┌──────────────┼──────────────┐
                              ▼              ▼              ▼
                       ┌────────────┐ ┌────────────┐ ┌─────────────┐
                       │ PostgreSQL │ │   Redis    │ │ apps/worker │
                       │ (Prisma)   │ │  (BullMQ)  │ │  (BullMQ)   │
                       └────────────┘ └────────────┘ └─────────────┘
-                                                            ▲
-                                                            │ heartbeats
-                                                    ┌───────┴────────┐
-                                                    │ activity-agent │
-                                                    │ (Windows .NET) │
-                                                    └────────────────┘
 ```
 
 ## Why these boundaries
@@ -37,13 +34,20 @@
   `apps/api`. It deliberately does not import Prisma, so the Next.js bundle
   never pulls in server-only code or a database driver.
 
-- **Activity companion is a separate Windows process, not a browser feature**:
-  a browser tab can only observe input events targeted at itself. Device-wide
-  idle detection requires a native API (`GetLastInputInfo`), which only a
-  native process can call. The companion authenticates once with a device
-  token and sends heartbeats containing only a timestamp and idle duration —
-  see `docs/architecture/SECURITY.md` for exactly what it is/isn't allowed to
-  collect.
+- **Activity tracking is browser-based, with an accepted, explicit
+  limitation**: an in-tab tracker resets an idle timer on any
+  mouse/keyboard/scroll/touch event targeted at the CRM360 tab and reports
+  idle duration to `POST /activity/heartbeat` on the Agent's own (already
+  authenticated) session - no separate device token or native process. This
+  supersedes the original spec's Windows-companion design (which used
+  `GetLastInputInfo` for genuine device-wide idle detection). The trade-off
+  is real and intentional: **a browser tab cannot observe activity outside
+  itself** - an Agent working in another application with the CRM360 tab
+  merely open in the background will be reported as idle. Admins can
+  disable tracking per-Agent (for roles/situations where this false-idle
+  risk isn't acceptable) and configure the global inactivity threshold from
+  Settings. See `docs/architecture/SECURITY.md` for what the heartbeat
+  payload does/doesn't contain.
 
 ## Request-time vs background-time responsibilities
 

@@ -11,6 +11,7 @@ interface UserRow {
   role: "TEAM_LEADER" | "SHIFT_SUPERVISOR" | "AGENT";
   status: "ACTIVE" | "INACTIVE";
   teamId: string | null;
+  activityTrackingEnabled: boolean;
 }
 
 interface TeamRow {
@@ -95,6 +96,7 @@ export default function UsersAndShiftsPage() {
                 <th className="px-3 py-2 font-medium">Role</th>
                 <th className="px-3 py-2 font-medium">Status</th>
                 <th className="px-3 py-2 font-medium">Team</th>
+                <th className="px-3 py-2 font-medium">Activity Tracking</th>
               </tr>
             </thead>
             <tbody>
@@ -136,6 +138,22 @@ export default function UsersAndShiftsPage() {
                         </option>
                       ))}
                     </select>
+                  </td>
+                  <td className="px-3 py-2">
+                    {user.role === "AGENT" ? (
+                      <label className="flex items-center gap-1.5 text-xs">
+                        <input
+                          type="checkbox"
+                          checked={user.activityTrackingEnabled}
+                          onChange={(e) =>
+                            updateUser.mutate({ id: user.id, data: { activityTrackingEnabled: e.target.checked } })
+                          }
+                        />
+                        {user.activityTrackingEnabled ? "Enabled" : "Disabled"}
+                      </label>
+                    ) : (
+                      <span className="text-xs text-muted-slate">—</span>
+                    )}
                   </td>
                 </tr>
               ))}

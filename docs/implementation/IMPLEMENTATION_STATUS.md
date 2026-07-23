@@ -1074,33 +1074,71 @@ Known gaps, flagged rather than silently assumed complete:
   Monitor/Users & Shifts show more rows than a fresh install would; cleaning
   it up is a separate, explicit task if a clean demo database is needed.
 
+## Architecture change — browser-based activity tracking
+
+**Status: Done, live-verified, superseding the original Windows-companion
+design (CLAUDE.md rule 3).** This is a deliberate, explicitly-called-out
+architecture pivot, not a silent regression from Phase 5's original design:
+
+- `apps/activity-agent` (the .NET Windows console app) has been **removed
+  entirely** - it was never compiled or run in any environment this project
+  has been built in (no Windows/.NET SDK was ever available), and is no
+  longer part of the active architecture.
+- The `devices` module (`DeviceRegistration`, `DeviceAuthGuard`,
+  `/devices/register`, `/devices/heartbeat`) has been replaced by a new
+  `activity` module: `GET /activity/status` and `POST /activity/heartbeat`,
+  both authenticated via the Agent's own JWT session - no separate device
+  token, no registration step. `ActivityHeartbeat` is now keyed directly to
+  `userId` instead of `deviceId`. Migration `20260723223018_browser_activity_tracking`
+  backfills existing heartbeat rows from their old device registration
+  before dropping that table, and was verified both against the live dev
+  database (with real leftover test data) and a from-empty clean database.
+- The idle-break state machine itself (break starts at last-activity
+  timestamp, not detection time; idempotent across repeated "still idle"
+  heartbeats; never overrides an explicit manual break) is unchanged and
+  carries over its full test coverage - 9 unit tests in
+  `activity.service.spec.ts` (up from 7 in the old `devices.service.spec.ts`,
+  adding coverage for the new per-Agent enable/disable gate and the
+  Settings-based threshold override).
+- **New, real product capability**: `User.activityTrackingEnabled` lets an
+  Admin disable browser tracking per-Agent (Users & Shifts page - a
+  checkbox column, `AGENT` rows only); `browserIdleThresholdSeconds` is a
+  new Settings key (Settings page) that overrides the env-var default at
+  runtime, read live on every heartbeat via `ActivityService.getThresholdSeconds`.
+- **The limitation is real and is documented, not hidden**: a browser tab
+  cannot observe activity outside itself. An Agent working in another
+  application with the CRM360 tab merely open in the background is reported
+  as idle. This is stated explicitly in `README.md`,
+  `docs/architecture/ARCHITECTURE.md`, and CLAUDE.md rule 3 - the whole
+  point of calling out an architecture deviation from the original spec
+  instead of quietly reinterpreting it.
+- **Live-verified in a real browser** (Playwright): the tracker mounts for
+  Agent role only, calls `GET /activity/status` on load, and the Admin
+  toggle/Settings field both render and submit correctly. Full click-through
+  of the heartbeat POST loop itself was not separately re-verified this
+  pass (it reuses the already-proven idle-break logic; the only new
+  surface is the auth path and the enable/disable gate, both unit-tested).
+
 ## Quality gates, as of this update
 
 ```
 pnpm --filter @milaserv/validation test    # 56/56 passing
-pnpm --filter @milaserv/api test           # 81/81 passing (auth + imports + sessions + devices + leads + dispositions + search + extension-mappings + dashboards + audit + attendance + settings)
+pnpm --filter @milaserv/api test           # 83/83 passing (auth + imports + sessions + activity + leads + dispositions + search + extension-mappings + dashboards + audit + attendance + settings)
+pnpm --filter @milaserv/api test:e2e       # 3/3 passing (concurrency/integration - see FINAL_REPOSITORY_AUDIT.md)
 pnpm --filter @milaserv/worker test        # 0 tests (processors verified via live integration testing instead - see above)
 cd packages/database && prisma validate    # valid
-cd apps/api && tsc --noEmit                # clean
-cd apps/worker && tsc --noEmit             # clean
-cd apps/web && tsc --noEmit                # clean
+pnpm -r lint                               # clean (0 errors, 52 accepted warnings - see FINAL_REPOSITORY_AUDIT.md)
+pnpm -r typecheck                          # clean across all 8 packages with scripts
 cd apps/api && nest build                  # clean
 cd apps/worker && tsc -p tsconfig.json     # clean
-cd apps/web && next build                  # clean, all 24 routes prerendered
+cd apps/web && next build                  # clean, all 27 routes prerendered
+node apps/api/dist/main.js                 # starts clean, answers GET /health 200 (see FINAL_REPOSITORY_AUDIT.md finding #10)
+node apps/worker/dist/main.js              # starts clean, consumes the queue
+docker compose config                      # clean (both docker-compose.yml and docker-compose.demo.yml)
 ```
 
-`eslint` could not be run this session - the repo has no `eslint.config.js`
-(ESLint 10 requires the flat-config format; the `.eslintrc.*` migration
-hasn't been done). This is a pre-existing gap from earlier phases, not
-something Phase 9 introduced; it should be fixed before relying on
-`pnpm lint` for anything.
-
-`pnpm lint` across every package and a full `docker compose build` have not
-been run yet in this session — the latter is expected to fail in this
-sandbox specifically (no container-registry access, see Phase 0 notes), not
-necessarily elsewhere.
-
-`pnpm lint` across every package and a full `docker compose build` have not
-been run yet in this session — the latter is expected to fail in this
-sandbox specifically (no container-registry access, see Phase 0 notes), not
-necessarily elsewhere.
+`eslint` now runs and passes repo-wide - it could not before this pass (see
+`docs/implementation/FINAL_REPOSITORY_AUDIT.md` for the fix and the real
+defects it immediately caught). `docker compose build`/`up` remain
+unverified in this specific sandbox (the daemon cannot start here); see
+`docs/release/FINAL_READINESS_REPORT.md` for the one remaining blocker.

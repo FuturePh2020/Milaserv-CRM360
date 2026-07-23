@@ -7,7 +7,6 @@
   Redis 7 install if Docker/registry access is unavailable in your
   environment (this is how the API was verified in the sandbox that built
   Phase 0/1 — see `docs/implementation/IMPLEMENTATION_STATUS.md`)
-- For the Windows companion (`apps/activity-agent`): Windows + .NET 8 SDK
 
 ## 1. Environment
 
@@ -72,14 +71,9 @@ curl -c cookies.txt -X POST http://localhost:4000/auth/login \
 You should get back a user object and an `accessToken`. Use it as
 `Authorization: Bearer <token>` against `GET /users`.
 
-## 7. Activity companion (Windows only)
+## 7. Activity tracking
 
-```powershell
-cd apps/activity-agent
-$env:MILASERV_API_URL = "http://localhost:4000"
-$env:MILASERV_ACCESS_TOKEN = "<a valid access token>"
-dotnet run
-```
-
-This has not been build-verified outside a Windows environment — see
-`apps/activity-agent/README.md`.
+No separate companion process to run - the browser-based tracker starts
+automatically inside the Agent dashboard whenever an Agent has an active
+session and tracking is enabled for them (Admin default: enabled). See
+`docs/architecture/ARCHITECTURE.md` for what it can and can't observe.
