@@ -8,6 +8,9 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint \"src/**/*.{ts,tsx}\""
   },
+  "dependencies": {
+    "@milaserv/contracts": "workspace:*"
+  },
   "peerDependencies": {
     "react": "^18.3.1"
   },
